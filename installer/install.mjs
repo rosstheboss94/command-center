@@ -95,7 +95,7 @@ export async function installHome(target, selection) {
   if (!(await exists(join(destination, '.git')))) {
     execFileSync('git', ['init', destination], { stdio: 'pipe' });
   }
-  const marker = JSON.stringify({ kind: 'command-center-home', templateVersion: metadata.version, agents }, null, 2) + '\n';
+  const marker = JSON.stringify({ kind: 'command-center-home', schemaVersion: 1, templateVersion: metadata.version, agents }, null, 2) + '\n';
   const temporary = join(destination, `${markerName}.${process.pid}.tmp`);
   await writeFile(temporary, marker, { flag: 'wx' });
   await rename(temporary, markerPath);

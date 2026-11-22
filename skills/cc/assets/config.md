@@ -13,6 +13,10 @@
 
 List each required command, its working directory relative to the checkout, and its purpose. Record the source of the command. List unresolved setup items explicitly.
 
+## Setup gaps
+
+List unresolved essentials explicitly. The init helper records unavailable default-branch evidence and missing validation commands here.
+
 ## Engineering skills
 
 Record project-specific additions or exclusions. Default to relevant shared lifecycle skills and specialists warranted by the work.

@@ -2,12 +2,14 @@
 
 ## Verify locally
 
-Run `npm test` using Node.js 22 or newer and Git. The suite packs the package, installs the tarball through npm offline, and checks generated skill references for Codex and Claude layouts. All fixture homes are temporary.
+Run `npm ci`, then `npm test` using Node.js 22 or newer and Git. The suite packs the package, installs its tarball through npm offline, and executes the bundled helper from Codex and Claude copies. Fixture homes are temporary. Tests cover home resolution, evidence, workspaces, stale inputs, command/catalog validation, record preservation, and completion results.
+
+The parser and workspace-glob dependencies are pinned as development dependencies and in `package-lock.json`. `npm run build:parsers` regenerates the checked-in helper bundle and notices. `npm pack` also runs this build through `prepack`. Generated homes use the bundle directly and need no dependency installation. Review bundle and notice changes alongside parser updates.
 
 Create a distributable tarball with `npm pack`. To install it before publication, use its absolute path.
 
 ```sh
-npm exec --yes --package=/absolute/path/create-command-center-0.2.0.tgz -- create-command-center ./my-home --agent both
+npm exec --yes --package=/absolute/path/create-command-center-0.3.0.tgz -- create-command-center ./my-home --agent both
 ```
 
 Open a fresh Codex session and a fresh Claude Code session in the generated home. Confirm that `cc` and the engineering skills are listed. Exercise `cc init <repo-link>`, inspect its central config and ignored checkout, and repeat it to verify preservation. These live-agent discovery and registration checks complement the package tests.
@@ -16,10 +18,12 @@ Open a fresh Codex session and a fresh Claude Code session in the generated home
 
 Review `npm pack --dry-run --json`. The package allowlist includes the installer, clean home templates, the shared skill library, references, upstream license, and provenance. User repo configs, job history, checkouts, and tests are excluded.
 
-The proposed npm name is `create-command-center`. Verify availability and npm account ownership before publishing. Original code uses the MIT license in `LICENSE`. The source repository is `https://github.com/rosstheboss94/command-center`. Preserve the upstream MIT notice in `LICENSE.agent-skills` separately.
+The npm package is `create-command-center`, owned by `rosstheboss94`. Confirm the npm account and package rights before publishing a new version. Original code uses the MIT license in `LICENSE`. The source repository is `https://github.com/rosstheboss94/command-center`. Preserve the upstream MIT notice in `LICENSE.agent-skills` separately.
 
 Align package and plugin versions for a release. Refresh the bundled upstream tree and provenance only when intentionally changing its version. Review template changes, since the installer preserves conflicting files on repeat runs.
 
 ## Publish
 
-Authenticate with the intended npm account, verify its identity and package rights, and obtain release authorization. Then run `npm publish --access public`. After publication, smoke-test `npx create-command-center@<version> <temporary-folder> --agent both` and verify the generated home in fresh agent sessions. The npm package has not been published.
+Check `npm view create-command-center versions dist-tags --json` to confirm the current public versions before releasing. Each new version requires release authorization.
+
+Authenticate with the intended npm account, verify its identity and package rights, and obtain release authorization. Then run `npm publish --access public`. Complete npm's publishing authentication and check the registry until the new version and dist-tag are visible. A staged placeholder or a successful command exit alone does not establish public availability. After publication, run `npx create-command-center@<version> . --agent both` from a fresh temporary folder and verify the generated home in fresh agent sessions.

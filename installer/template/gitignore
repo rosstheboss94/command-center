@@ -1,4 +1,5 @@
 /projects/
+/.cc/
 .DS_Store
 Thumbs.db
 *.tmp

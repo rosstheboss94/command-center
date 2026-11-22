@@ -17,6 +17,9 @@ async function fixture(t) {
 async function verifySkills(home, folder) {
   const skills = join(home, folder, 'skills');
   assert.equal((await readdir(skills)).length, 27);
+  await access(join(skills, 'cc/scripts/init.mjs'));
+  await access(join(skills, 'cc/scripts/vendor/parsers.mjs'));
+  await access(join(skills, 'cc/scripts/vendor/LICENSE.parsers.txt'));
   async function walk(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
@@ -52,9 +55,11 @@ for (const agent of ['codex', 'claude', 'both']) {
     await access(join(home, 'LICENSE'));
     const ignored = execFileSync('git', ['-C', home, 'check-ignore', 'projects/owner/repo/file'], { encoding: 'utf8' });
     assert.match(ignored, /projects\/owner\/repo\/file/);
-    assert.equal(JSON.parse(await readFile(join(home, '.command-center.json'))).templateVersion, '0.2.0');
+    const marker = JSON.parse(await readFile(join(home, '.command-center.json')));
+    assert.equal(marker.templateVersion, '0.3.0');
+    assert.equal(marker.schemaVersion, 1);
     const names = await readdir(home);
-    assert.ok(!names.includes('installer') && !names.includes('bin') && !names.includes('package.json'));
+    assert.ok(!names.includes('installer') && !names.includes('bin') && !names.includes('package.json') && !names.includes('node_modules'));
   });
 }
 
@@ -108,6 +113,17 @@ test('packed npm executable creates a complete home offline', async t => {
   await verifySkills(destination, '.agents');
   await verifySkills(destination, '.claude');
   await access(join(destination, '.gitignore'));
+  const project = join(root, 'local fixture');
+  await mkdir(project);
+  execFileSync('git', ['init', '-b', 'main', project]);
+  const prepareOutput = execFileSync(process.execPath, [join(destination, '.agents/skills/cc/scripts/init.mjs'), 'prepare', '--cwd', project], { encoding: 'utf8' });
+  const prepared = JSON.parse(prepareOutput);
+  assert.equal(prepared.ok, true);
+  const detailsPath = join(root, 'details.json');
+  await writeFile(detailsPath, JSON.stringify({ purpose: 'Packed fixture', checks: [], skills: [], setupGaps: ['Confirm checks'] }));
+  const registered = JSON.parse(execFileSync(process.execPath, [join(destination, '.claude/skills/cc/scripts/init.mjs'), 'register', '--report', prepared.reportPath, '--details', detailsPath], { encoding: 'utf8', cwd: destination }));
+  assert.equal(registered.id, 'local-fixture');
+  assert.match(await readFile(registered.configPath, 'utf8'), /Confirm checks/);
   const cli = join(source, 'bin/create-command-center.mjs');
   const noAgent = spawnSync(process.execPath, [cli, join(root, 'no-agent')], { encoding: 'utf8' });
   assert.equal(noAgent.status, 1);
