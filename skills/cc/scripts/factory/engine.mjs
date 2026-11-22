@@ -11,6 +11,9 @@ import { deliverJob, syncLabel, commentOnBlock, restartOptions } from './github.
 // Off for now. A blocked-job comment calls GitHub while the job still holds its
 // repository slot, which delays every other job. The comment helpers stay in place.
 const blockCommentsEnabled = false;
+// Off for now. Review roles are not dispatched, so a passing verification goes
+// to approval. The approver still runs, and the review roles stay in the catalog.
+const reviewsEnabled = false;
 
 const sourceIdentity = 'github.com/rosstheboss94/command-center';
 export function protectedSourcePath(path, identity) {
@@ -155,7 +158,7 @@ async function role(job, context, name, options) {
   await assertWorktree(job, context, run);
   if (name !== 'builder' && await git(['status', '--porcelain=v1', '--untracked-files=all'], job.worktree, run)) throw new Error('A read-only role modified the worktree.');
   report = validateReport(report, name, startingCommit);
-  if (report.requiredReviews) job.requiredReviews = [...new Set([...job.requiredReviews, ...report.requiredReviews])];
+  if (reviewsEnabled && report.requiredReviews) job.requiredReviews = [...new Set([...job.requiredReviews, ...report.requiredReviews])];
   const reportPath = join(job.directory, 'reports', `${name}-${randomUUID()}.json`);
   await atomic(reportPath, report);
   job.reports[name] = { ...report, file: reportPath };
@@ -177,9 +180,10 @@ async function buildCommit(job, context, run) {
   job.commit = await git(['rev-parse', 'HEAD'], job.worktree, run);
   delete job.pendingBuild;
   const changed = (await git(['diff', '--name-only', job.baseCommit, '--'], job.worktree, run)).split('\n');
-  if (changed.some(path => /(?:auth|session|security|payment|migration|api|upload)/i.test(path))) job.requiredReviews.push('review-security');
-  if (changed.some(path => /\.(?:tsx|jsx|html|css|vue|svelte)$/.test(path))) job.requiredReviews.push('review-ui', 'review-ux');
-  job.requiredReviews = [...new Set(job.requiredReviews)]; job.checks = null;
+  if (reviewsEnabled && changed.some(path => /(?:auth|session|security|payment|migration|api|upload)/i.test(path))) job.requiredReviews.push('review-security');
+  if (reviewsEnabled && changed.some(path => /\.(?:tsx|jsx|html|css|vue|svelte)$/.test(path))) job.requiredReviews.push('review-ui', 'review-ux');
+  if (reviewsEnabled) job.requiredReviews = [...new Set(job.requiredReviews)];
+  job.checks = null;
   for (const name of Object.keys(job.reports)) if (name.startsWith('review-') || name === 'approver') delete job.reports[name];
   await saveJob(job, 'Recorded builder commit and invalidated old verification and reviews.');
 }
@@ -203,7 +207,8 @@ async function verify(job, context, options) {
   return job.checks.passed;
 }
 function deliveryGate(job) {
-  if (!job.checks?.passed || job.checks.commit !== job.commit || job.requiredReviews.some(name => job.reports[name]?.verdict !== 'PASS' || job.reports[name]?.commit !== job.commit)
+  const reviewsMissing = reviewsEnabled && job.requiredReviews.some(name => job.reports[name]?.verdict !== 'PASS' || job.reports[name]?.commit !== job.commit);
+  if (!job.checks?.passed || job.checks.commit !== job.commit || reviewsMissing
     || job.reports.approver?.verdict !== 'APPROVE' || job.reports.approver?.commit !== job.commit) throw new Error('Delivery requires passing checks, all reviews, and approval for the exact commit.');
 }
 async function block(job, error, context, run) {
@@ -275,12 +280,17 @@ export async function runJob(home, repo, id, options = {}) {
         } else if (job.stage === 'verify') {
           job.stage = await verify(job, context, options) ? 'review' : 'build';
         } else if (job.stage === 'review') {
-          // Independent processes are sequential within a job to preserve one state writer.
-          const reports = [];
-          for (const name of job.requiredReviews) reports.push(await role(job, context, name, options));
-          const verdict = reports.some(report => report.verdict === 'BLOCKED') ? 'BLOCKED' : reports.some(report => report.verdict === 'CHANGES') ? 'CHANGES' : 'PASS';
-          if (verdict === 'BLOCKED') throw Object.assign(new Error('A required review is blocked; inspect its report.'), { requiresFeedback: true });
-          job.stage = nextStage('review', verdict);
+          if (!reviewsEnabled) {
+            job.requiredReviews = [];
+            job.stage = 'approve';
+          } else {
+            // Independent processes are sequential within a job to preserve one state writer.
+            const reports = [];
+            for (const name of job.requiredReviews) reports.push(await role(job, context, name, options));
+            const verdict = reports.some(report => report.verdict === 'BLOCKED') ? 'BLOCKED' : reports.some(report => report.verdict === 'CHANGES') ? 'CHANGES' : 'PASS';
+            if (verdict === 'BLOCKED') throw Object.assign(new Error('A required review is blocked; inspect its report.'), { requiresFeedback: true });
+            job.stage = nextStage('review', verdict);
+          }
         } else if (job.stage === 'deliver') {
           await assertWorktree(job, context, run);
           if (await git(['rev-parse', 'HEAD'], job.worktree, run) !== job.commit || await git(['status', '--porcelain=v1'], job.worktree, run)) throw new Error('Delivery commit changed.');

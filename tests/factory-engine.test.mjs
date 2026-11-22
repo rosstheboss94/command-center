@@ -27,26 +27,27 @@ function roleRunner({ changes = false, blocked = false, mutateReview = false } =
   let reviewCount = 0;
   return async ({ role, commit, worktree }) => {
     if (role === 'builder') await writeFile(join(worktree, 'app.txt'), 'after\n');
-    if (mutateReview && role === 'review-code') await writeFile(join(worktree, 'app.txt'), 'bad review write\n');
+    if (mutateReview && role === 'spec') await writeFile(join(worktree, 'app.txt'), 'bad review write\n');
     const verdict = role === 'intake' ? 'ACCEPT' : role === 'approver' ? 'APPROVE' : role.startsWith('review-')
       ? changes && reviewCount++ === 0 ? 'CHANGES' : 'PASS' : blocked && role === 'spec' ? 'BLOCKED' : 'READY';
     return { verdict, commit, findings: verdict === 'CHANGES' ? ['fix it'] : [], evidence: ['fixture inspected runtime'], artifact: '# Verified fixture artifact' };
   };
 }
 
-test('end-to-end local job isolates changes and reaches delivery only after current reviews and approval', async t => {
+test('end-to-end local job reaches delivery after approval while reviewers are off', async t => {
   const f = await fixture(t); const context = await loadContext(f.home, f.repo, 'codex');
   const job = await createJob(context, 'Change app');
   const seen = [];
   const runRole = roleRunner({ changes: true });
   const result = await runJob(f.home, f.repo, job.id, { runRole: async args => { seen.push(args.role); return runRole(args); }, deliver: async state => ({ url: 'https://example.invalid/pr/1', head: state.commit }) });
-  assert.equal(result.stage, 'ready'); assert.equal(result.round, 2);
+  assert.equal(result.stage, 'ready', result.blocker); assert.equal(result.round, 1);
   assert.equal(await readFile(join(f.project, 'app.txt'), 'utf8'), 'before\n');
   assert.equal(await readFile(join(result.worktree, 'app.txt'), 'utf8'), 'after\n');
-  assert.ok(seen.indexOf('review-code') > seen.indexOf('builder'));
+  for (const reviewer of ['review-code', 'review-security', 'review-ui', 'review-ux']) assert.equal(seen.includes(reviewer), false);
   assert.ok(seen.includes('approver'));
   assert.equal(result.checks.commit, result.commit);
-  assert.equal(result.reports['review-code'].commit, result.commit);
+  assert.equal(result.reports['review-code'], undefined);
+  assert.deepEqual(result.requiredReviews, []);
 });
 
 test('role failures block without switching provider; feedback resumes the interrupted stage', async t => {
@@ -119,14 +120,19 @@ test('recovery refuses live owners and dirty check output blocks instead of beco
   assert.notEqual(result.checks?.passed, true);
 });
 
-test('UI jobs require actual rendered evidence before they can reach reviews', async t => {
+test('UI changes do not dispatch reviewers while reviewers are off', async t => {
   const f = await fixture(t); const context = await loadContext(f.home, f.repo, 'codex');
   const job = await createJob(context, 'Add UI'); const normal = roleRunner();
+  const seen = [];
   const result = await runJob(f.home, f.repo, job.id, { runRole: async args => {
+    seen.push(args.role);
     if (args.role === 'builder') await writeFile(join(args.worktree, 'app.html'), '<h1>App</h1>');
     return normal(args);
-  } });
-  assert.equal(result.stage, 'blocked'); assert.match(result.blocker, /visual evidence/);
+  }, deliver: async state => ({ url: 'https://example.invalid/pr/ui', head: state.commit }) });
+  assert.equal(result.stage, 'ready', result.blocker);
+  assert.equal(seen.includes('review-ui'), false);
+  assert.equal(seen.includes('review-ux'), false);
+  assert.ok(seen.includes('approver'));
 });
 
 test('builders cannot commit factory control edits and failing checks exhaust the frozen budget', async t => {
@@ -166,7 +172,8 @@ for (const runner of ['codex', 'claude', 'grok']) test(`real engine normalizes $
       return { code: 0, stdout, stderr: '' };
     } });
   assert.equal(result.stage, 'ready', result.blocker);
-  assert.ok(result.attempts.some(attempt => attempt.name === 'review-code' && attempt.finished));
+  assert.equal(result.attempts.some(attempt => attempt.name.startsWith('review-')), false);
+  assert.ok(result.attempts.some(attempt => attempt.name === 'approver' && attempt.finished));
 });
 
 import { command } from '../skills/cc/scripts/factory.mjs';
