@@ -67,6 +67,13 @@ async function assertHelper(helper, project) {
   assert.equal(prepared.ok, true);
   assert.equal(prepared.catalog.skills.length, 27);
   assert.ok(prepared.catalog.skills.some(skill => skill.name === 'cc' && skill.valid && skill.path === 'skills/cc/SKILL.md'));
+  const factory = resolve(dirname(helper), 'factory.mjs');
+  await access(resolve(dirname(helper), '../references/factory-roles.md'));
+  const operations = JSON.parse(execFileSync(process.execPath, [factory], { encoding: 'utf8' }));
+  assert.ok(operations.operations.includes('run'));
+  const status = JSON.parse(execFileSync(process.execPath, [factory, 'status', '--home', prepared.home], { encoding: 'utf8' }));
+  assert.equal(status.ok, true);
+  assert.deepEqual(status.result, []);
   return prepared;
 }
 
