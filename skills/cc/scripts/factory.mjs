@@ -31,6 +31,7 @@ async function status(home, repo, id) {
     }
     if (await exists(join(job.directory, 'execution.lock'))) warnings.push('Execution lock exists; inspect recorded processes before retrying.');
     if (job.labelError) warnings.push(`GitHub label synchronization failed: ${job.labelError}`);
+    if (job.commentError) warnings.push(`GitHub block comment failed: ${job.commentError}`);
     return { ...job, warnings };
   };
   if (repo) return id ? describe(await loadJob(home, repo, id)) : Promise.all((await listJobs(home, repo)).map(describe));
