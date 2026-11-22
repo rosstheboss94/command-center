@@ -1,0 +1,6 @@
+# Machine and editor output
+/projects/
+*.tgz
+.DS_Store
+Thumbs.db
+*.tmp

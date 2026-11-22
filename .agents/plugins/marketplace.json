@@ -1,0 +1,12 @@
+{
+  "name": "command-center",
+  "interface": {"displayName": "Command Center"},
+  "plugins": [{
+    "name": "command-center",
+    "version": "0.2.0",
+    "description": "A skills-based software factory home repo.",
+    "source": {"source": "local", "path": "./"},
+    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+    "category": "Productivity"
+  }]
+}
