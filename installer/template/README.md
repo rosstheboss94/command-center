@@ -2,6 +2,8 @@
 
 Open Codex or Claude Code in this folder and select the `cc` skill. Then request `cc init https://github.com/owner/project` in chat. The agent clones it into `projects/owner/project` and saves central settings under `repos/`.
 
+Init uses the skill's bundled Node helper for home discovery, URL validation, identity matching, cloning, facts, scopes, freshness checks, and atomic config/index writes. It validates selected home skills and supported check structures. The agent chooses checks from project instructions first, then CI, then documented manifest scripts. Missing essentials and custom-command limits become setup gaps. Repeat init preserves settings and returns an exact created, reused, or repaired summary. Temporary reports and locks live in the ignored `.cc/` directory.
+
 Use `cc repos`, `cc config <repo>`, `cc start <repo> <task>`, `cc status`, `cc resume <repo> <job>`, and `cc feedback <repo> <job> <text>` in chat. See `skills/cc/SKILL.md` for the workflow.
 
 Starting a job authorizes job-branch commits, pushes, and a ready PR after checks and review. Skills honor existing approvals and require evidence for completion. Merge and deployment remain human decisions.

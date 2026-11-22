@@ -1,6 +1,10 @@
 # Machine and editor output
+/node_modules/
 /projects/
+/.cc/
 *.tgz
 .DS_Store
 Thumbs.db
 *.tmp
+/projects/
+/.cc/

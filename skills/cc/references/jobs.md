@@ -4,6 +4,8 @@
 
 Resolve the registered checkout and confirm its Git identity. Report missing checkouts or mismatched remotes as blockers. Read central configuration and current project instructions. Preserve user edits. Use a dedicated branch or isolated worktree per job and record its exact path and base commit.
 
+Use the config's generated Instruction scope data when present. Root rules apply across the checkout, while nested rules apply only within their directory. Legacy flat instruction lists retain each file's directory scope. Read the Check validation limits and setup gaps before treating the saved checks as ready for a job.
+
 Create a unique UTC timestamp plus short random suffix under `jobs/<repo-id>/<job-id>/`. Save the exact request, a configuration snapshot as `config.md`, and `progress.md` based on [the progress template](../assets/progress.md). Freeze selected validation commands and delivery preferences. Configure skill output destinations in the job context to use this job's spec, plan, and task list. If project instructions require their own artifact locations, record those pointers and keep one authoritative task list.
 
 Stages are `spec`, `plan`, `build`, `verify`, `review`, `deliver`, `ready`, `blocked`, and `rejected`. A blocked record includes the interrupted stage, actual reason, and input or recovery needed. Save evidence before marking stages complete. Preserve feedback, failures, and review rounds chronologically.
