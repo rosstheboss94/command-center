@@ -1,6 +1,6 @@
 # Software Factory Command Center
 
-This is a skills-only home repo. The user-facing `cc` skill is `skills/cc/SKILL.md`. Start your coding agent here and invoke `cc` to initialize repo pointers or coordinate software work using the shared agent skills.
+This is a software factory home repo with a bundled Node.js runtime. The user-facing `cc` skill is `skills/cc/SKILL.md`. Start your coding agent here and invoke `cc` to register projects or coordinate software work using the shared agent skills.
 
 The 26 upstream engineering skills and shared references are preserved from the commit recorded in [UPSTREAM.md](UPSTREAM.md). Central project configurations live under `repos/`. Job requests, config snapshots, progress, checks, reviews, and feedback live under `jobs/`. Product source remains in its own checkout.
 
@@ -42,11 +42,19 @@ For local development and tarball installation before npm publication, see [rele
 | `cc repos` | List repo pointers and setup gaps |
 | `cc config <repo> [change]` | Inspect or update central settings |
 | `cc start <repo> <task>` | Spec, plan, build, verify, review, and prepare a PR |
+| `cc add <repo> <idea>` | Queue a GitHub issue without starting work |
+| `cc run <repo> [issue]` | Process a snapshot of queued issues or one selected issue |
+| `cc config <repo> factory` | Configure per-role Codex/Claude/Grok runners and limits |
+| `cc adopt <repo> <job>` | Preserve and validate a legacy job for the enforced workflow |
 | `cc status [repo] [job]` | Inspect saved progress and evidence |
 | `cc resume <repo> <job>` | Reconcile and continue an interrupted job |
 | `cc feedback <repo> <job> <text>` | Record an answer and continue |
 
-Start authorizes job branch commits, pushes, and PR creation after checks and review. The workflows follow the upstream skills' approval checkpoints and honor approvals already given. Merge and deployment remain human decisions. These operations are performed by the coding agent through skill instructions. Progress and checks must be backed by recorded evidence.
+Start authorizes job branch commits, pushes, and PR creation after checks and review. The workflows honor approvals already given. Merge and deployment remain human decisions. The invoking agent routes factory operations through the bundled helper. Progress and checks must be backed by recorded evidence.
+
+The bundled factory helper owns job state, isolated worktrees, process logs, frozen checks, independent role reviews, and exact-commit PR delivery. Defaults are three concurrent jobs per repository, three rework rounds, and 30 minutes per role or check. Roles use the invoking host's CLI and default model unless configured otherwise. Missing CLIs or permissions block work without switching providers. GitHub queues use `cc:queued`; newly arriving issues wait for the next run. The workflow has no dependency on a separately installed factory skill. See [factory operations and recovery](skills/cc/references/jobs.md) for the helper contract and configuration.
+
+The factory implementation in this checkout is unreleased; installing public `0.4.0` does not include these new job helpers. Test this checkout's tarball using the release instructions. No existing customized home is overwritten automatically.
 
 No projects are enrolled automatically. Register the projects you want through `cc init`. Skills may include upstream bundled helpers for their specialized tasks, as documented in `UPSTREAM.md`.
 

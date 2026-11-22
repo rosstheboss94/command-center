@@ -43,4 +43,6 @@ test('provider envelopes require completed successful output', () => {
   assert.throws(() => providerReport('codex', JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(report) } })));
   assert.throws(() => providerReport('claude', JSON.stringify({ type: 'result', is_error: true, result: JSON.stringify(report) })));
   assert.throws(() => providerReport('grok', '{}'));
+  assert.deepEqual(providerReport('grok', JSON.stringify({ text: JSON.stringify(report), stopReason: 'end_turn' })), report);
+  assert.throws(() => providerReport('grok', JSON.stringify({ text: JSON.stringify(report), stopReason: 'max_tokens' })));
 });

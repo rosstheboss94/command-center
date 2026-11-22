@@ -61,3 +61,13 @@ test('legacy jobs remain visible and adoption preserves old records', async t =>
   assert.equal(job.stage, 'blocked');
   assert.equal(await readFile(join(directory, 'legacy-progress.md'), 'utf8'), '# Old history');
 });
+
+import { execute, alive } from '../skills/cc/scripts/factory/io.mjs';
+
+test('process runner waits for failed startup cleanup and bounds timed-out processes', async () => {
+ let pid;
+ await assert.rejects(execute(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { onStart: async child => { pid = child; throw new Error('recording failed'); } }), /recording failed/);
+ assert.equal(alive(pid), false);
+ const result = await execute(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeoutSeconds: 0.05 });
+ assert.equal(result.timedOut, true);
+});

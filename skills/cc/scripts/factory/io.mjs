@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename, lstat, readdir, open, unlink, realp
 import { resolve, relative, isAbsolute, sep, join, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const now = () => new Date().toISOString();
@@ -40,9 +41,15 @@ export async function lock(path, action) {
   await mkdir(dirname(path), { recursive: true });
   let handle;
   try { handle = await open(path, 'wx'); }
-  catch (error) { if (error.code === 'EEXIST') throw new Error(`Factory lock exists: ${path}. Inspect owner/child processes before recovery.`); throw error; }
+  catch (error) { if (error.code === 'EEXIST') throw Object.assign(new Error(`Factory lock exists: ${path}. Inspect owner/child processes before recovery.`), { code: 'FACTORY_LOCKED', path }); throw error; }
   await handle.writeFile(JSON.stringify({ pid: process.pid, started: now() }));
   try { return await action(); } finally { await handle.close(); await unlink(path); }
+}
+export async function transaction(path, action) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { return await lock(path, action); }
+    catch (error) { if (error.code !== 'FACTORY_LOCKED' || error.path !== path || attempt === 99) throw error; await delay(25); }
+  }
 }
 export async function digestTree(root) {
   const items = [];
@@ -66,11 +73,12 @@ export async function execute(file, args, { cwd, input = '', timeoutSeconds = 18
   }
   return new Promise((resolveResult, reject) => {
     const child = spawn(file, args, { cwd, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '', timedOut = false, oversized = false, bytes = 0;
+    let stdout = '', stderr = '', timedOut = false, oversized = false, bytes = 0, startupError, started = Promise.resolve();
     const stop = () => {
       if (process.platform === 'win32') {
         const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
         killer.on('error', () => child.kill());
+        killer.on('exit', code => { if (code !== 0) child.kill(); });
       } else { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }
     };
     const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutSeconds * 1000);
@@ -82,15 +90,21 @@ export async function execute(file, args, { cwd, input = '', timeoutSeconds = 18
     child.stdout.on('data', collect('stdout')); child.stderr.on('data', collect('stderr'));
     child.stdin.on('error', () => {});
     child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', (code, signal) => { clearTimeout(timer); resolveResult({ code, signal, stdout, stderr, timedOut, oversized }); });
-    child.on('spawn', async () => {
-      try { await onStart(child.pid); child.stdin.end(input); }
-      catch (error) { stop(); reject(error); }
+    child.on('close', async (code, signal) => {
+      clearTimeout(timer); await started;
+      if (startupError) reject(startupError);
+      else resolveResult({ code, signal, stdout, stderr, timedOut, oversized });
+    });
+    child.on('spawn', () => {
+      started = (async () => {
+        try { await onStart(child.pid); child.stdin.end(input); }
+        catch (error) { startupError = error; stop(); }
+      })();
     });
   });
 }
 export async function git(args, cwd, run = execute) {
   const result = await run('git', args, { cwd });
   if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr?.trim() || 'unknown error'}`);
-  return result.stdout.trim();
+  return args.includes('-z') ? result.stdout : result.stdout.trim();
 }
