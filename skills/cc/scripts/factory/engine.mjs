@@ -8,6 +8,10 @@ import { validateReport, nextStage } from './model.mjs';
 import { providerCommand, providerReport } from './providers.mjs';
 import { deliverJob, syncLabel, commentOnBlock, restartOptions } from './github.mjs';
 
+// Off for now. A blocked-job comment calls GitHub while the job still holds its
+// repository slot, which delays every other job. The comment helpers stay in place.
+const blockCommentsEnabled = false;
+
 const sourceIdentity = 'github.com/rosstheboss94/command-center';
 export function protectedSourcePath(path, identity) {
   if (/^\.git(?:\/|$)/i.test(path)) return true;
@@ -211,7 +215,7 @@ async function block(job, error, context, run) {
   job.stage = 'blocked'; job.blocker = error.message;
   job.requiresFeedback = Boolean(error.requiresFeedback);
   await saveJob(job, `Blocked: ${error.message}`);
-  if (!entering || !job.issue) return;
+  if (!blockCommentsEnabled || !entering || !job.issue) return;
   try {
     await commentOnBlock(context, job, { run });
     delete job.commentError;

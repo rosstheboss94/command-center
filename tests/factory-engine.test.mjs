@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, readFile, stat } from 'node:fs/promises';
+import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './factory-fixture.mjs';
 import { loadContext, saveConfig } from '../skills/cc/scripts/factory/project.mjs';
 import { createJob, loadJob } from '../skills/cc/scripts/factory/store.mjs';
 import { runJob, feedback, recover, restartChoiceLine } from '../skills/cc/scripts/factory/engine.mjs';
-import { git, execute, inside } from '../skills/cc/scripts/factory/io.mjs';
-import { restartOptions, blockCommentBody } from '../skills/cc/scripts/factory/github.mjs';
+import { git, execute, exists } from '../skills/cc/scripts/factory/io.mjs';
+import { restartOptions } from '../skills/cc/scripts/factory/github.mjs';
 
 test('registered project checks and scoped instructions are frozen; config drift blocks new jobs', async t => {
   const f = await fixture(t);
@@ -283,7 +283,7 @@ function blockSpec({ role, commit }) {
   return { verdict, commit, findings: [], evidence: ['fixture inspected'], artifact: '# Verified fixture artifact' };
 }
 
-test('one new block posts one comment and an exact letter resumes that same job', async t => {
+test('a blocked issue job stays local while block comments are off, and an exact letter resumes that same job', async t => {
   const f = await fixture(t, { github: true });
   const context = await loadContext(f.home, f.repo, 'grok');
   const github = githubRunner();
@@ -295,21 +295,15 @@ test('one new block posts one comment and an exact letter resumes that same job'
   assert.equal(blocked.schemaVersion, 1);
   assert.equal(blocked.commentError, undefined);
   assert.equal(blocked.restartChoice, null);
-  assert.equal(github.comments(41).length, 1);
-  assert.deepEqual(github.comments(41)[0], ['issue', 'comment', '41', '--repo', 'fixture/cc-factory', '--body-file', join(blocked.directory, 'block-comment.md')]);
-  const bodyPath = join(blocked.directory, 'block-comment.md');
-  const body = await readFile(bodyPath, 'utf8');
-  assert.equal(body, blockCommentBody({ id: blocked.id, repo: blocked.repo, stage: 'spec', blocker: blocked.blocker }));
-  assert.equal(inside(blocked.worktree, bodyPath), false);
+  assert.equal(github.comments(41).length, 0);
+  assert.equal(await exists(join(blocked.directory, 'block-comment.md')), null);
   assert.equal(github.sequence.some(item => item.startsWith('label:')), false);
-  const written = await stat(bodyPath);
   const dead = await execute(process.execPath, ['-e', 'console.log(process.pid)']);
   await writeFile(join(blocked.directory, 'execution.lock'), JSON.stringify({ pid: Number(dead.stdout.trim()) }));
   const recovered = await recover(f.home, f.repo, once.id, { run: github.run });
   assert.equal(recovered.stage, 'blocked');
-  assert.equal(github.comments(41).length, 1);
-  assert.equal(await readFile(bodyPath, 'utf8'), body);
-  assert.equal((await stat(bodyPath)).mtimeMs, written.mtimeMs);
+  assert.equal(github.comments(41).length, 0);
+  assert.equal(await exists(join(blocked.directory, 'block-comment.md')), null);
 
   const letter = await createJob(context, 'Choose b', { issue: { number: 42, url: 'https://github.com/fixture/cc-factory/issues/42' } });
   let specBlocked = true;
@@ -353,20 +347,20 @@ test('one new block posts one comment and an exact letter resumes that same job'
   const again = await createJob(context, 'Comment again', { issue: { number: 43, url: 'https://github.com/fixture/cc-factory/issues/43' } });
   github.modes.set('43', 'fail');
   const failed = await runJob(f.home, f.repo, again.id, { skipLabels: true, run: github.run, runRole: blockSpec });
-  assert.equal(failed.commentError, 'GitHub issue failed: comment denied');
+  assert.equal(failed.commentError, undefined);
+  assert.equal(github.comments(43).length, 0);
   const selected = await feedback(f.home, f.repo, again.id, 'c\n');
   assert.equal(selected.restartChoice.letter, 'c');
-  assert.equal(selected.commentError, failed.commentError);
-  github.modes.set('43', 'ok');
+  assert.equal(selected.commentError, undefined);
   const second = await runJob(f.home, f.repo, again.id, { skipLabels: true, run: github.run, runRole: blockSpec });
   assert.equal(second.stage, 'blocked');
   assert.equal(second.restartChoice, null);
   assert.equal(second.commentError, undefined);
-  assert.equal(github.comments(43).length, 2);
-  assert.equal(await readFile(join(second.directory, 'block-comment.md'), 'utf8'), blockCommentBody({ id: second.id, repo: second.repo, stage: second.interruptedStage, blocker: second.blocker }));
+  assert.equal(github.comments(43).length, 0);
+  assert.equal(await exists(join(second.directory, 'block-comment.md')), null);
 });
 
-test('a failed block comment stays local and status reports it', async t => {
+test('a blocked issue job does not call GitHub while block comments are off', async t => {
   const f = await fixture(t, { github: true });
   const context = await loadContext(f.home, f.repo, 'codex');
   const github = githubRunner();
@@ -375,22 +369,24 @@ test('a failed block comment stays local and status reports it', async t => {
   const failed = await runJob(f.home, f.repo, denied.id, { run: github.run, runRole: blockSpec });
   assert.equal(failed.stage, 'blocked');
   assert.equal(failed.blocker, 'need a narrower change');
-  assert.equal(failed.commentError, 'GitHub issue failed: comment denied');
+  assert.equal(failed.commentError, undefined);
+  assert.equal(github.comments(51).length, 0);
   assert.equal(failed.history.some(item => item.message.startsWith('Posted one blocked-job comment')), false);
-  assert.equal(failed.history.some(item => item.message === 'GitHub block comment failed: GitHub issue failed: comment denied'), true);
-  const deniedOrder = github.sequence.filter(item => item.endsWith(':51'));
-  assert.ok(deniedOrder.lastIndexOf('label:51') > deniedOrder.lastIndexOf('comment:51'));
+  assert.equal(failed.history.some(item => item.message.startsWith('GitHub block comment failed:')), false);
+  assert.equal(github.sequence.some(item => item === 'comment:51'), false);
+  assert.equal(github.sequence.some(item => item === 'label:51'), true);
   github.modes.set('52', 'bad-url');
   const mismatched = await createJob(context, 'Mismatched comment', { issue: { number: 52, url: 'https://github.com/fixture/cc-factory/issues/52' } });
   const bad = await runJob(f.home, f.repo, mismatched.id, { skipLabels: true, run: github.run, runRole: blockSpec });
   assert.equal(bad.stage, 'blocked');
   assert.equal(bad.blocker, 'need a narrower change');
-  assert.equal(bad.commentError, 'GitHub issue comment response did not match issue 52.');
+  assert.equal(bad.commentError, undefined);
+  assert.equal(github.comments(52).length, 0);
   assert.equal(bad.history.some(item => item.message.startsWith('Posted one blocked-job comment')), false);
   assert.equal(github.sequence.some(item => item === 'label:52'), false);
   for (const job of [failed, bad]) {
     const status = await command('status', { home: f.home, repo: f.repo, job: job.id });
-    assert.equal(status.warnings.includes(`GitHub block comment failed: ${job.commentError}`), true);
+    assert.equal(status.warnings.some(warning => warning.startsWith('GitHub block comment failed:')), false);
   }
   failed.labelError = 'label broke';
   await saveJob(failed, 'fixture planted label error');
@@ -405,7 +401,7 @@ test('a failed block comment stays local and status reports it', async t => {
   let crash = true;
   const crashed = await runJob(f.home, f.repo, operational.id, { skipLabels: true, run: github.run, runRole: async () => { if (crash) { crash = false; throw new Error('runner crashed'); } } });
   assert.equal(crashed.requiresFeedback, false);
-  assert.equal(github.comments(53).length, 1);
+  assert.equal(github.comments(53).length, 0);
   const planted = await loadJob(f.home, f.repo, operational.id);
   planted.restartChoice = { letter: 'a', text: 'planted', stage: 'intake' };
   planted.commentError = 'keep me';
@@ -418,14 +414,14 @@ test('a failed block comment stays local and status reports it', async t => {
       assert.equal(current.restartChoice, null);
       assert.equal(current.commentError, 'keep me');
       assert.equal(current.history.some(item => item.message === 'Explicit resume requested after an operational failure. No restart option was chosen.'), true);
-      assert.equal(github.comments(53).length, 1);
+      assert.equal(github.comments(53).length, 0);
     }
     return roleRunner()(args);
   }, deliver });
   assert.equal(continued.stage, 'ready', continued.blocker);
   assert.equal(continued.restartChoice, null);
   assert.equal(continued.commentError, 'keep me');
-  assert.equal(github.comments(53).length, 1);
+  assert.equal(github.comments(53).length, 0);
 });
 
 test('local blocks and ordinary replies record no restart letter', async t => {
