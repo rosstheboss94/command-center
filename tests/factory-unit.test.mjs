@@ -2,8 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { effectiveConfig, validateReport, nextStage } from '../skills/cc/scripts/factory/model.mjs';
 import { providerCommand, providerReport } from '../skills/cc/scripts/factory/providers.mjs';
+import { protectedSourcePath } from '../skills/cc/scripts/factory/engine.mjs';
 
 const sha = 'a'.repeat(40);
+test('only the verified Command Center identity can modify its own factory source', () => {
+  const own = 'github.com/rosstheboss94/command-center';
+  for (const path of ['skills/cc/scripts/checks.mjs', '.agents/skills/cc/SKILL.md', 'repos/example/config.md', '.command-center.json']) {
+    assert.equal(protectedSourcePath(path, own), false);
+    for (const identity of ['github.com/other/command-center', 'github.com/rosstheboss94/trader', undefined]) assert.equal(protectedSourcePath(path, identity), true);
+  }
+  assert.equal(protectedSourcePath('.git/config', own), true);
+  assert.equal(protectedSourcePath('SKILLS/CC/scripts/checks.mjs', 'github.com/other/repo'), true);
+});
 test('factory settings resolve role overrides without retaining another provider model', () => {
   const config = effectiveConfig({ default: { runner: 'codex', model: 'example' }, roles: { builder: { runner: 'grok' } } }, 'claude');
   assert.equal(config.concurrency, 3);

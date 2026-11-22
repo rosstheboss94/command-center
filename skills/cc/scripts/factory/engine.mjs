@@ -8,7 +8,12 @@ import { validateReport, nextStage } from './model.mjs';
 import { providerCommand, providerReport } from './providers.mjs';
 import { deliverJob, syncLabel } from './github.mjs';
 
-const protectedPath = path => /^(?:\.git(?:\/|$)|(?:\.agents|\.claude|\.grok)\/skills\/cc(?:\/|$)|skills\/cc(?:\/|$)|repos(?:\/|$)|jobs(?:\/|$)|\.command-center\.json$)/i.test(path);
+const sourceIdentity = 'github.com/rosstheboss94/command-center';
+export function protectedSourcePath(path, identity) {
+  if (/^\.git(?:\/|$)/i.test(path)) return true;
+  if (identity === sourceIdentity) return false;
+  return /^(?:(?:\.agents|\.claude|\.grok)\/skills\/cc(?:\/|$)|skills\/cc(?:\/|$)|repos(?:\/|$)|jobs(?:\/|$)|\.command-center\.json$)/i.test(path);
+}
 const stageRole = { intake: 'intake', spec: 'spec', plan: 'plan', build: 'builder', approve: 'approver' };
 
 async function controlDigest(context, job) {
@@ -28,6 +33,14 @@ async function statusPaths(worktree, run) {
     if (/[RC]/.test(entries[index].slice(0, 2))) paths.push(entries[++index]);
   }
   return paths;
+}
+async function buildFingerprint(job, run) {
+  const files = [];
+  for (const path of [...new Set(await statusPaths(job.worktree, run))].sort()) {
+    const absolute = await safe(job.worktree, resolve(job.worktree, path));
+    files.push([path, await digestTree(absolute)]);
+  }
+  return hash(JSON.stringify({ commit: await git(['rev-parse', 'HEAD'], job.worktree, run), files }));
 }
 async function assertWorktree(job, context, run) {
   const identity = await projectRecord(context.home, context.repo);
@@ -96,9 +109,9 @@ async function promptFor(job, context, role) {
   const guide = await readFile(new URL('../../references/factory-roles.md', import.meta.url), 'utf8');
   const request = await readFile(join(job.directory, 'request.md'), 'utf8');
   const diff = await git(['diff', job.baseCommit, '--'], job.worktree);
-  return `${guide}\n\nROLE: ${role}\nCOMMIT: ${job.commit}\nWORKTREE: ${job.worktree}\nBASE: ${job.baseCommit}\n` +
+  return `${guide}\n\nROLE: ${role}\nCOMMIT: ${job.commit}\nWORKTREE: ${job.worktree}\nBASE: ${job.baseCommit}\nREPOSITORY_IDENTITY: ${context.identity}\n` +
     `Return only one JSON report. The commit field must equal ${job.commit}. Do not commit, push, merge, publish, spawn subagents, or edit factory controls. ` +
-    `${role === 'builder' ? 'Edit only this worktree; report blockers if permissions prevent work.' : 'Read only. Return any requested artifact as the report artifact string; do not write files.'}\n` +
+    `${role === 'builder' ? `Edit only this worktree; report blockers if permissions prevent work. ${context.identity === sourceIdentity ? 'This is the verified Command Center source repository: its source files in this worktree may change, but the live home, frozen records, and Git controls remain protected.' : 'This is not the Command Center source repository; factory control paths remain protected.'}` : 'Read only. Return any requested artifact as the report artifact string; do not write files.'}\n` +
     `Instructions (each scope governs only its subtree):\n${JSON.stringify(context.instructions)}\n` +
     `Relevant shared skill catalog: ${JSON.stringify(context.skills)}\n` +
     `Saved reports: ${JSON.stringify(job.reports)}\nChecks: ${JSON.stringify(job.checks)}\nFeedback: ${JSON.stringify(job.feedback || [])}\n` +
@@ -142,19 +155,23 @@ async function role(job, context, name, options) {
   const reportPath = join(job.directory, 'reports', `${name}-${randomUUID()}.json`);
   await atomic(reportPath, report);
   job.reports[name] = { ...report, file: reportPath };
+  if (name === 'builder' && report.verdict === 'READY') job.pendingBuild = { commit: startingCommit, digest: await buildFingerprint(job, run) };
   if (report.artifact) await atomic(join(job.directory, `${name}.md`), report.artifact);
   await saveJob(job, `Accepted ${name} report: ${report.verdict}.`);
   return report;
 }
-async function buildCommit(job, run) {
+async function buildCommit(job, context, run) {
+  await assertWorktree(job, context, run);
   const paths = await statusPaths(job.worktree, run);
-  if (paths.some(protectedPath)) throw new Error('Builder changed protected factory controls.');
+  if (paths.some(path => protectedSourcePath(path, context.identity))) throw new Error('Builder changed protected factory controls.');
+  if (job.pendingBuild && job.pendingBuild.digest !== await buildFingerprint(job, run)) throw new Error('Worktree changed after the completed builder report; reconcile edits before accepting this build.');
   if (paths.length) {
     await git(['add', '--', ...paths], job.worktree, run);
     await git(['diff', '--cached', '--check'], job.worktree, run);
     await git(['commit', '-m', `feat: implement factory job ${job.id}`], job.worktree, run);
   }
   job.commit = await git(['rev-parse', 'HEAD'], job.worktree, run);
+  delete job.pendingBuild;
   const changed = (await git(['diff', '--name-only', job.baseCommit, '--'], job.worktree, run)).split('\n');
   if (changed.some(path => /(?:auth|session|security|payment|migration|api|upload)/i.test(path))) job.requiredReviews.push('review-security');
   if (changed.some(path => /\.(?:tsx|jsx|html|css|vue|svelte)$/.test(path))) job.requiredReviews.push('review-ui', 'review-ux');
@@ -230,7 +247,7 @@ export async function runJob(home, repo, id, options = {}) {
           }
           const stage = job.stage;
           const report = await role(job, context, stageRole[stage], options);
-          if (stage === 'build' && report.verdict === 'READY') await buildCommit(job, run);
+          if (stage === 'build' && report.verdict === 'READY') await buildCommit(job, context, run);
           const next = nextStage(stage, report.verdict);
           if (next === 'blocked') throw Object.assign(new Error(report.findings.join('\n') || `${stage} requires human input.`), { requiresFeedback: true });
           job.stage = next;
@@ -275,6 +292,23 @@ export async function feedback(home, repo, id, text) {
 }
 export async function resumeJob(home, repo, id, options = {}) {
   const job = await loadJob(home, repo, id);
+  if (options.acceptBuild) {
+    await lock(join(job.directory, 'execution.lock'), async () => {
+      if (job.stage !== 'blocked' || job.interruptedStage !== 'build' || job.reports.builder?.verdict !== 'READY') throw new Error('Accept-build recovery requires a blocked job with a completed READY builder report.');
+      const context = await json(join(job.directory, 'context.json'));
+      const run = options.run || execute;
+      await assertWorktree(job, context, run);
+      if (await git(['rev-parse', 'HEAD'], job.worktree, run) !== job.reports.builder.commit) throw new Error('Completed builder report is stale; HEAD changed.');
+      validateReport(job.reports.builder, 'builder', job.commit);
+      // Older records have no content fingerprint. This explicit recovery records
+      // the operator's acceptance of the currently inspected preserved changes.
+      job.pendingBuild ||= { commit: job.commit, digest: await buildFingerprint(job, run) };
+      await saveJob(job, 'Explicitly accepted preserved builder output for helper checkpoint recovery.');
+      await buildCommit(job, context, run);
+      job.stage = 'verify'; job.blocker = null; job.requiresFeedback = false;
+      await saveJob(job, 'Recovered completed build; all checks, reviews, and approval are still required.');
+    });
+  }
   if (job.stage === 'blocked' && !job.requiresFeedback) {
     await lock(join(job.directory, 'execution.lock'), async () => {
       job.stage = job.interruptedStage; job.blocker = null;

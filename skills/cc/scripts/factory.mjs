@@ -67,7 +67,7 @@ export async function command(operation, values, dependencies = {}) {
       await saveJob(job, 'Explicit GitHub label synchronization completed.');
       return job;
     }
-    return operation === 'resume' ? resumeJob(home, repo, values.job, dependencies) : runJob(home, repo, values.job, dependencies);
+    return operation === 'resume' ? resumeJob(home, repo, values.job, { ...dependencies, acceptBuild: values['accept-build'] }) : runJob(home, repo, values.job, dependencies);
   }
   if (!['codex', 'claude', 'grok'].includes(values.host)) throw new Error('Supply --host codex, claude, or grok from the invoking host.');
   const context = await loadContext(home, repo, values.host);
@@ -120,7 +120,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const { values, positionals } = parseArgs({ allowPositionals: true, options: Object.fromEntries([
       'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree',
-    ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }]])) });
+    ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }], ['accept-build', { type: 'boolean' }]])) });
     if (!positionals.length) console.log(JSON.stringify({ operations }));
     else {
       if (positionals.length !== 1) throw new Error('Use named options after one operation.');

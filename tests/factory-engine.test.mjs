@@ -196,3 +196,47 @@ test('stale recovery refuses live children before clearing exact owned locks', a
  assert.equal(recovered.stage,'blocked'); assert.equal(recovered.requiresFeedback,true);
  assert.equal(recovered.interruptedStage,'intake');
 });
+
+const selfRepo = 'https://github.com/rosstheboss94/command-center.git';
+const allowLocalFetch = (file,args,options) => file === 'git' && args[0] === 'fetch' ? Promise.resolve({code:0,stdout:''}) : execute(file,args,options);
+async function sourceBuilder(args) {
+ const { mkdir } = await import('node:fs/promises');
+ if(args.role === 'builder') {
+  await mkdir(join(args.worktree,'skills/cc/scripts'),{recursive:true});
+  await writeFile(join(args.worktree,'skills/cc/scripts/checks.mjs'),'// owned source change\n');
+ }
+ return roleRunner()(args);
+}
+test('Command Center self-jobs may update source but cannot modify the live home controls', async t => {
+ const f = await fixture(t,{github:selfRepo}); const context = await loadContext(f.home,f.repo,'codex');
+ const job = await createJob(context,'Update Command Center validator');
+ const result = await runJob(f.home,f.repo,job.id,{run:allowLocalFetch,runRole:sourceBuilder,deliver:async state=>({url:'https://example.invalid/self-pr',head:state.commit})});
+ assert.equal(result.stage,'ready',result.blocker);
+ const other = await createJob(context,'Malicious live-control edit');
+ const blocked = await runJob(f.home,f.repo,other.id,{run:allowLocalFetch,runRole:async args=>{
+  if(args.role === 'builder') await writeFile(join(f.home,'skills/cc/SKILL.md'),'tampered live control');
+  return sourceBuilder(args);
+ }});
+ assert.equal(blocked.stage,'blocked'); assert.match(blocked.blocker,/protected factory controls/);
+});
+test('explicit recovery checkpoints a completed preserved build without redispatching or skipping checks', async t => {
+ const f = await fixture(t,{github:selfRepo}); const context = await loadContext(f.home,f.repo,'codex');
+ const job = await createJob(context,'Update Command Center validator');
+ const stopped = await runJob(f.home,f.repo,job.id,{runRole:sourceBuilder,run:async(file,args,options)=>file==='git'&&args[0]==='commit'?{code:1,stderr:'fixture interruption'}:allowLocalFetch(file,args,options)});
+ assert.equal(stopped.stage,'blocked'); assert.equal(stopped.reports.builder.verdict,'READY');
+ const recovered = await command('resume',{home:f.home,repo:f.repo,job:job.id,'accept-build':true},{run:allowLocalFetch,runRole:async args=>{
+  assert.notEqual(args.role,'builder'); return roleRunner()(args);
+ },deliver:async state=>({url:'https://example.invalid/recovered-pr',head:state.commit})});
+ assert.equal(recovered.stage,'ready',recovered.blocker); assert.equal(recovered.round,1);
+ assert.equal(recovered.checks.passed,true); assert.equal(recovered.checks.commit,recovered.commit);
+ assert.equal(await readFile(join(recovered.worktree,'skills/cc/scripts/checks.mjs'),'utf8'),'// owned source change\n');
+});
+
+test('checkpoint recovery rejects edits made after the accepted builder report', async t => {
+ const f = await fixture(t,{github:selfRepo}); const context = await loadContext(f.home,f.repo,'codex');
+ const job = await createJob(context,'Update Command Center validator');
+ const stopped = await runJob(f.home,f.repo,job.id,{runRole:sourceBuilder,run:async(file,args,options)=>file==='git'&&args[0]==='commit'?{code:1,stderr:'fixture interruption'}:allowLocalFetch(file,args,options)});
+ await writeFile(join(stopped.worktree,'app.txt'),'unexpected later edits');
+ await assert.rejects(command('resume',{home:f.home,repo:f.repo,job:job.id,'accept-build':true},{run:allowLocalFetch}),/changed after the completed builder report/);
+ assert.equal((await loadJob(f.home,f.repo,job.id)).stage,'blocked');
+});

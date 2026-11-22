@@ -18,7 +18,7 @@ export async function fixture(t, { github = false } = {}) {
   await writeFile(join(project, 'app.txt'), 'before\n');
   await git(['add', '.'], project); await git(['commit', '-m', 'seed'], project);
   if (github) {
-    await git(['remote', 'add', 'origin', 'https://github.com/fixture/cc-factory.git'], project);
+    await git(['remote', 'add', 'origin', typeof github === 'string' ? github : 'https://github.com/fixture/cc-factory.git'], project);
     await git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], project);
     await git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], project);
   }
