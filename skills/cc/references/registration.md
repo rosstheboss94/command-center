@@ -1,6 +1,6 @@
 # Registration and central configuration
 
-Run the bundled helper with Node.js 22 or newer and Git available. It discovers the home from canonical ancestors of the invocation directory and helper location. Explicit `--home` selects a home directly. Multiple candidates require a choice. Plugin caches are excluded from automatic discovery. Use the original valid home explicitly for a copied plugin. Existing bootstrap markers are accepted. Unmarked homes need a valid marker before discovery can use them.
+Run the bundled helper with Node.js 22 or newer and Git available. It discovers the home from canonical ancestors of the invocation directory and helper location. Explicit `--home` selects a home directly. Multiple candidates require a choice. Plugin caches are excluded from automatic discovery, including Codex and Claude plugin caches and Grok plugin caches and marketplace installs. Use the original valid home explicitly for a copied plugin. Existing bootstrap markers are accepted. Unmarked homes need a valid marker before discovery can use them.
 
 ## `cc init` procedure
 

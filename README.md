@@ -6,7 +6,7 @@ The 26 upstream engineering skills and shared references are preserved from the 
 
 ## Install a home repo
 
-Version `0.3.0` adds the deterministic init helper described below. Install the latest published release in a new folder with Node.js 22 or newer and Git installed.
+Version `0.4.0` adds Grok Build as a host for the same skills and workflows. Version `0.3.0` added the deterministic init helper described below. Install the latest published release in a new folder with Node.js 22 or newer and Git installed.
 
 ```sh
 mkdir my-command-center
@@ -14,9 +14,19 @@ cd my-command-center
 npx create-command-center@latest .
 ```
 
-Choose Codex, Claude Code, or both. For a non-interactive install, pass `--agent codex`, `--agent claude`, or `--agent both`. An explicit destination path can replace `.`.
+Choose Codex, Claude Code, Grok Build, both, or all. `both` installs Codex and Claude Code and remains the interactive default. `all` installs all three. For a non-interactive install, pass `--agent codex`, `--agent claude`, `--agent grok`, `--agent both`, or `--agent all`. An explicit destination path can replace `.`.
 
-The bootstrap copies a versioned home template, canonical skills, shared references, and project-local discovery copies for the selected agents. It initializes Git, ignores `projects/`, and writes `.command-center.json` so the skill can find the home root. The generated home contains the skill workflows and records. The installer source and tests stay in this distribution repository.
+The bootstrap copies a versioned home template, canonical skills, shared references, and project-local discovery copies for the selected agents. Codex uses `.agents/`, Claude Code uses `.claude/`, and Grok Build uses `.grok/skills/` plus `.grok/references/`. It initializes Git, ignores `projects/`, and writes `.command-center.json` so the skill can find the home root. The generated home contains the skill workflows and records. The installer source and tests stay in this distribution repository.
+
+Grok Build reads the home `AGENTS.md` and discovers the installed skills from `.grok/skills/`. Invoke `/cc` in a Grok session opened in that home.
+
+To add one agent to an existing home from `0.3.0` or this release, without upgrading the rest of the home:
+
+```sh
+npx create-command-center@latest . --add-agent grok
+```
+
+`--add-agent` accepts `codex`, `claude`, or `grok`. It copies that home's canonical `skills/` and `references/` into the agent's discovery directories, so home-specific skill edits are kept. It updates the home validator where the installed copy still matches the `0.3.0` baseline, records the agent in the existing marker, and keeps the home's template version. Repeat the command after it succeeds and it makes no further changes. Combine it with `--agent` and the command stops before writing.
 
 Open a fresh agent session in the generated home and select the `cc` skill. Ask `cc init https://github.com/owner/project` in chat. The agent clones into `projects/owner/project` and registers the project centrally. GitHub SSH clone URLs, `owner/repo` shorthand, and local paths are also supported.
 

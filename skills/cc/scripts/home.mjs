@@ -17,7 +17,7 @@ export async function validateHome(path) {
     const marker = JSON.parse(await readFile(markerPath, 'utf8'));
     if (marker.kind !== 'command-center-home' || (marker.schemaVersion !== undefined && marker.schemaVersion !== 1) ||
         typeof marker.templateVersion !== 'string' || !/^\d+\.\d+\.\d+(?:[-+][a-z0-9.-]+)?$/i.test(marker.templateVersion) ||
-        !Array.isArray(marker.agents) || marker.agents.some(agent => !['codex', 'claude'].includes(agent)) ||
+        !Array.isArray(marker.agents) || marker.agents.some(agent => !['claude', 'codex', 'grok'].includes(agent)) ||
         new Set(marker.agents).size !== marker.agents.length) throw new Error('Unsupported home marker.');
     for (const name of ['repos', 'skills', 'skills/cc']) {
       const entry = await info(join(home, name));
@@ -34,7 +34,9 @@ export async function validateHome(path) {
 }
 
 function pluginCache(path) {
-  return /\/(?:\.codex|\.claude)\/plugins\/cache(?:\/|$)/i.test(path.replaceAll('\\', '/'));
+  const normalized = path.replaceAll('\\', '/');
+  return /\/(?:\.codex|\.claude|\.grok)\/plugins\/cache(?:\/|$)/i.test(normalized)
+    || /\/\.grok\/plugins\/marketplaces(?:\/|$)/i.test(normalized);
 }
 
 export async function discoverHome({ home, cwd = process.cwd(), helperDirectory = dirname(fileURLToPath(import.meta.url)) } = {}) {

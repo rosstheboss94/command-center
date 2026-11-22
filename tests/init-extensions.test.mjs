@@ -211,9 +211,18 @@ test('old reports require preparation and plugin caches are excluded from discov
   const legacy = JSON.parse(await readFile(report.reportPath)); legacy.version = 1;
   await writeFile(report.reportPath, JSON.stringify(legacy));
   await assert.rejects(register({ home: f.home, report: report.reportPath, details }), { code: 'INSPECTION_STALE' });
-  const cache = join(f.root, '.codex/plugins/cache/example/1.0'); await homeAt(cache);
   const empty = join(f.root, 'empty'); await mkdir(empty);
-  await assert.rejects(discoverHome({ cwd: empty, helperDirectory: cache }), { code: 'HOME_NOT_FOUND' });
+  for (const cachePath of ['.codex/plugins/cache/example/1.0', '.claude/plugins/cache/example/1.0', '.grok/plugins/cache/example/1.0', '.grok/plugins/marketplaces/example/1.0']) {
+    const cache = join(f.root, cachePath);
+    await homeAt(cache);
+    await assert.rejects(discoverHome({ cwd: empty, helperDirectory: cache }), { code: 'HOME_NOT_FOUND' });
+  }
+});
+
+test('accepts a grok home marker', async t => {
+  const f = await fixture(t);
+  await write(f.home, '.command-center.json', JSON.stringify({ kind: 'command-center-home', templateVersion: '0.4.0', agents: ['grok'] }));
+  assert.deepEqual((await discoverHome({ home: f.home })).marker.agents, ['grok']);
 });
 
 test('Cargo package selectors resolve from child workspace context and reject every unknown selection', async t => {

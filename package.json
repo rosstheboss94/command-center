@@ -1,7 +1,7 @@
 {
   "name": "create-command-center",
-  "version": "0.3.0",
-  "description": "Create a skills-based software factory home repo for Codex and Claude Code.",
+  "version": "0.4.0",
+  "description": "Create a skills-based software factory home repo for Codex, Claude Code, and Grok Build.",
   "author": "rosstheboss94",
   "repository": {
     "type": "git",
