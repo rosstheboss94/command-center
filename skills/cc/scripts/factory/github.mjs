@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { execute, git, atomic, safe } from './io.mjs';
+import { execute, git, atomic, safe, inside } from './io.mjs';
 import { saveJob } from './store.mjs';
 
 function repository(context) {
@@ -90,6 +90,59 @@ export async function deliverJob(job, context, { run = execute } = {}) {
   if (final.length !== 1 || final[0].isDraft || final[0].headRefOid !== job.commit) throw new Error('PR readiness or head verification failed.');
   return job.pr;
 }
+const commentStages = new Set(['intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver']);
+
+export function restartOptions(stage, blocker) {
+  const failure = typeof blocker === 'string' ? blocker : '';
+  const line = (letter, action) => `Resume this same job at ${stage} and ${action}, then continue from ${stage}. Choosing ${letter} restarts this same job from ${stage}. Blocker: ${failure}`;
+  return {
+    a: line('a', 'correct the cause of this blocker'),
+    b: line('b', 'narrow the work so this blocker no longer applies'),
+    c: line('c', 'keep the original request, treating this blocker as a constraint the stage must satisfy'),
+  };
+}
+
+function fence(payload) {
+  const runs = payload.match(/`+/g) || [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+export function blockCommentBody({ id, repo, stage, blocker }) {
+  const failure = typeof blocker === 'string' ? blocker : '';
+  const options = restartOptions(stage, failure);
+  const payload = `${failure}\n\na. ${options.a}\nb. ${options.b}\nc. ${options.c}`;
+  const marker = fence(payload);
+  return `Job: ${id}\nInterrupted stage: ${stage}\nBlocker and restart options:\n${marker}text\n${payload}\n${marker}\n\nReply with text that is exactly one letter: a, b, or c.\nCommand: cc feedback ${repo} ${id} <letter>\nHelper: feedback --repo ${repo} --job ${id} --file <feedback-file>\nChoosing a, b, or c restarts this same job from ${stage} and does not open a second job.\n`;
+}
+
+function commentIssue(job) {
+  const number = job.issue?.number;
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error('Issue number must be a positive safe integer.');
+  return number;
+}
+
+function commentUrl(repo, number, stdout) {
+  const [owner, name] = repo.split('/');
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^https://github\\.com/${escape(owner)}/${escape(name)}/issues/${number}#issuecomment-\\d+$`, 'i');
+  if (!pattern.test(stdout.trim())) throw new Error(`GitHub issue comment response did not match issue ${number}.`);
+  return stdout.trim();
+}
+
+export async function commentOnBlock(context, job, { run = execute } = {}) {
+  if (!context) throw new Error('A job context is required.');
+  const number = commentIssue(job);
+  if (!commentStages.has(job.interruptedStage)) throw new Error('Interrupted stage cannot receive a block comment.');
+  const repo = await verify(context, run);
+  const bodyFile = await safe(job.directory, join(job.directory, 'block-comment.md'));
+  if (job.worktree && inside(job.worktree, bodyFile)) throw new Error('Block comment file must stay outside the worktree.');
+  await atomic(bodyFile, blockCommentBody({ id: job.id, repo: job.repo, stage: job.interruptedStage, blocker: job.blocker }));
+  const args = ['issue', 'comment', String(number), '--repo', repo, '--body-file', bodyFile];
+  const stdout = await gh(context, args, run);
+  return commentUrl(repo, number, stdout);
+}
+
 export async function processQueue(items, concurrency, worker) {
   const results = new Array(items.length);
   let next = 0;
