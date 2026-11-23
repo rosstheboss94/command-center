@@ -12,6 +12,10 @@ Return one JSON object as your final response, without surrounding prose:
 
 Findings are unresolved actionable problems. PASS and APPROVE require no unresolved findings. BLOCKED requires a precise explanation in findings. Evidence must describe actual observations; never claim a check or browser interaction you did not perform or inspect in saved evidence. The commit must match the supplied COMMIT even for the builder, because the helper commits after accepting its report.
 
+Each finding may be a nonempty string or an object with a required nonempty `problem`, optional nonempty `correction` and `file`, and optional severity (`P0`–`P3`, `critical`, `high`, `medium`, `low`, or `info`). Unknown or malformed fields are rejected. The helper renders supported objects into actionable strings without changing the verdict, and preserves the raw provider output. Evidence remains a nonempty array of nonempty strings. A schema error is not approval and does not erase an underlying blocker.
+
+The host supplies verified published-release inventory paths as environment evidence. Inspect these offline inputs before attempting registry access. Verified archive paths may also be available when actual legacy file contents are needed. Their presence never changes task scope, sandbox permissions, or the obligation to compare and preserve customized destination files.
+
 ## Role responsibilities
 
 | Role | Task and allowed verdicts |

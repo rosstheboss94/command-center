@@ -10,8 +10,9 @@ import { createJob, listJobs, loadJob, adoptJob, saveJob } from './factory/store
 import { runJob, resumeJob, feedback, recover } from './factory/engine.mjs';
 import { addIssue, queueIssues, processQueue, syncLabel } from './factory/github.mjs';
 import { atomic, exists, safe, lock, git, json, inside, identifier } from './factory/io.mjs';
+import { prepareReleaseInputs } from './factory/release-inputs.mjs';
 
-export const operations = ['config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover'];
+export const operations = ['config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover', 'release-inputs'];
 async function requestFile(path) {
   if (!path) throw new Error('Supply --file with the exact UTF-8 request or feedback.');
   const text = await readFile(path, 'utf8');
@@ -48,6 +49,7 @@ export async function command(operation, values, dependencies = {}) {
   const { home } = await discoverHome({ home: values.home, cwd: values.cwd || process.cwd() });
   const repo = values.repo;
   if (operation === 'status') return status(home, repo, values.job);
+  if (operation === 'release-inputs') return prepareReleaseInputs(home, { from: values.from, offline: Boolean(values.offline) });
   if (!repo) throw new Error('--repo is required.');
   identifier(repo);
   if (operation === 'config') return values.file
@@ -120,8 +122,8 @@ export async function command(operation, values, dependencies = {}) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values, positionals } = parseArgs({ allowPositionals: true, options: Object.fromEntries([
-      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree',
-    ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }], ['accept-build', { type: 'boolean' }]])) });
+      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree', 'from',
+    ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }], ['accept-build', { type: 'boolean' }], ['offline', { type: 'boolean' }]])) });
     if (!positionals.length) console.log(JSON.stringify({ operations }));
     else {
       if (positionals.length !== 1) throw new Error('Use named options after one operation.');

@@ -71,6 +71,10 @@ async function assertHelper(helper, project) {
   await access(resolve(dirname(helper), '../references/factory-roles.md'));
   const operations = JSON.parse(execFileSync(process.execPath, [factory], { encoding: 'utf8' }));
   assert.ok(operations.operations.includes('run'));
+  assert.ok(operations.operations.includes('release-inputs'));
+  const pins = JSON.parse(await readFile(resolve(dirname(helper), '../assets/release-baselines/pins.json'), 'utf8'));
+  assert.deepEqual(pins.releases.map(item => item.version), ['0.3.0', '0.4.0']);
+  for (const pin of pins.releases) await access(resolve(dirname(helper), `../assets/release-baselines/${pin.version}.json`));
   const status = JSON.parse(execFileSync(process.execPath, [factory, 'status', '--home', prepared.home], { encoding: 'utf8' }));
   assert.equal(status.ok, true);
   assert.deepEqual(status.result, []);

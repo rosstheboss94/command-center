@@ -28,10 +28,22 @@ export function effectiveConfig(saved = {}, host) {
     checkTimeoutSeconds: positive(saved.checkTimeoutSeconds ?? 1800, 'checkTimeoutSeconds'), default: defaults,
     roles: Object.fromEntries(roles.map(role => [role, profile(defaults, saved.roles?.[role])])), requiredReviews };
 }
+function findingText(finding, index) {
+  const nonempty = value => typeof value === 'string' && value.trim();
+  if (nonempty(finding)) return finding;
+  if (!finding || typeof finding !== 'object' || Array.isArray(finding) || !nonempty(finding.problem)) throw new Error(`Invalid finding ${index}: expected a nonempty string or a problem/correction object.`);
+  for (const key of Object.keys(finding)) {
+    if (!['problem', 'correction', 'severity', 'file'].includes(key) || !nonempty(finding[key])) throw new Error(`Invalid finding ${index} field: ${key}.`);
+  }
+  if (finding.severity && !['P0', 'P1', 'P2', 'P3', 'critical', 'high', 'medium', 'low', 'info'].includes(finding.severity)) throw new Error(`Invalid finding ${index} severity.`);
+  return `${finding.severity ? `[${finding.severity}] ` : ''}${finding.file ? `${finding.file}: ` : ''}${finding.problem}${finding.correction ? `\nCorrection: ${finding.correction}` : ''}`;
+}
 export function validateReport(report, role, commit) {
   const allowed = verdicts[role] || ['PASS', 'CHANGES', 'BLOCKED'];
   if (!report || typeof report !== 'object' || !allowed.includes(report.verdict) || report.commit !== commit || !/^[a-f0-9]{40,64}$/.test(commit)) throw new Error(`Invalid ${role} verdict or stale commit.`);
-  if (!Array.isArray(report.findings) || !report.findings.every(item => typeof item === 'string') || !Array.isArray(report.evidence) || !report.evidence.length || !report.evidence.every(item => typeof item === 'string' && item.trim())) throw new Error('Report requires findings and concrete evidence.');
+  if (!Array.isArray(report.findings)) throw new Error('Report findings must be an array.');
+  if (!Array.isArray(report.evidence) || !report.evidence.length || !report.evidence.every(item => typeof item === 'string' && item.trim())) throw new Error('Report evidence must contain concrete nonempty strings.');
+  report = { ...report, findings: report.findings.map(findingText) };
   if (['PASS', 'APPROVE'].includes(report.verdict) && report.findings.length) throw new Error('Passing reports cannot contain unresolved findings.');
   if (report.requiredReviews && (!Array.isArray(report.requiredReviews) || report.requiredReviews.some(item => !['review-security', 'review-ui', 'review-ux'].includes(item)))) throw new Error('Invalid specialist review selection.');
   if (['spec', 'plan'].includes(role) && report.verdict === 'READY' && (typeof report.artifact !== 'string' || !report.artifact.trim())) throw new Error('Specification and plan require an artifact.');

@@ -30,7 +30,7 @@ export async function safe(root, path) {
 export async function atomic(path, value) {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temp, typeof value === 'string' ? value : JSON.stringify(value, null, 2) + '\n', { flag: 'wx' });
+  await writeFile(temp, typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value, null, 2) + '\n', { flag: 'wx' });
   try { await rename(temp, path); } finally { await unlink(temp).catch(() => {}); }
 }
 export const json = async path => JSON.parse(await readFile(path, 'utf8'));
