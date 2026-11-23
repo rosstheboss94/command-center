@@ -20,6 +20,7 @@ Interpret `cc` operations in chat using the host agent's normal tools. For init,
 | `cc resume <repo> <job>` | Reconcile and continue the saved job |
 | `cc feedback <repo> <job> <text>` | Save the person's answer and continue the affected stage. A reply whose text is exactly `a`, `b`, or `c` records that restart option and continues the same job from the interrupted stage |
 | `cc adopt <repo> <job>` | Preserve and validate a legacy job before refreshing evidence |
+| `cc release-inputs` | Verify and cache published migration inputs from the host |
 
 Read [registration](references/registration.md) for init, repos, and project config. Read [jobs](references/jobs.md) for factory configuration, issue queues, start, status, resume, adoption, and feedback. Use bundled `scripts/factory.mjs` for factory operations, never a separately installed factory skill or direct state edits. A bare invocation describes operations without writing records.
 

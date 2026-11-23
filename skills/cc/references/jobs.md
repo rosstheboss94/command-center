@@ -21,6 +21,8 @@ Invoke `node <cc-skill>/scripts/factory.mjs <operation>` with separate argument-
 
 ## Configuration
 
+For verified legacy release inventories and host-assisted archive prefetch, see [published release inputs](release-inputs.md). These environment inputs are supplied to roles without changing frozen job scope.
+
 Factory settings live in `repos/<repo>/factory.json`, beside `config.md`. Use helper `config` to write settings; it records the Markdown fingerprint. If central Markdown changes, inspect and reconcile it before saving requested settings again. Do not treat unresolved validation prose as executable checks. Structured checks must be supported by current project evidence and the registration helper's validation contract; compound commands belong in declared project scripts.
 
 Settings input example (not the generated wrapper file):
