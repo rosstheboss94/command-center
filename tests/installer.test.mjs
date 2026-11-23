@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, readdir, mkdir, rm, access } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, readdir, mkdir, rm, access, cp } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { addAgent, installHome } from '../installer/install.mjs';
+import { projectSkills } from '../installer/projection.mjs';
+import { buildCatalog } from '../skills/ready/cc/scripts/inspection.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 async function fixture(t) {
@@ -16,10 +18,13 @@ async function fixture(t) {
 
 async function verifySkills(home, folder) {
   const skills = join(home, folder, 'skills');
-  assert.equal((await readdir(skills)).length, 27);
-  await access(join(skills, 'cc/scripts/init.mjs'));
-  await access(join(skills, 'cc/scripts/vendor/parsers.mjs'));
-  await access(join(skills, 'cc/scripts/vendor/LICENSE.parsers.txt'));
+  const canonical = folder === '.';
+  if (canonical) assert.equal((await buildCatalog(home)).skills.length, 27);
+  else assert.equal((await readdir(skills)).length, 27);
+  const cc = canonical ? 'ready/cc' : 'cc';
+  await access(join(skills, cc, 'scripts/init.mjs'));
+  await access(join(skills, cc, 'scripts/vendor/parsers.mjs'));
+  await access(join(skills, cc, 'scripts/vendor/LICENSE.parsers.txt'));
   async function walk(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
@@ -66,7 +71,7 @@ async function assertHelper(helper, project) {
   const prepared = JSON.parse(execFileSync(process.execPath, [helper, 'prepare', '--cwd', project, '--source', project], { encoding: 'utf8' }));
   assert.equal(prepared.ok, true);
   assert.equal(prepared.catalog.skills.length, 27);
-  assert.ok(prepared.catalog.skills.some(skill => skill.name === 'cc' && skill.valid && skill.path === 'skills/cc/SKILL.md'));
+  assert.ok(prepared.catalog.skills.some(skill => skill.name === 'cc' && skill.valid && skill.workflowStep === 'ready' && skill.path === (skill.layout === 'nested' ? 'skills/ready/cc/SKILL.md' : 'skills/cc/SKILL.md')));
   const factory = resolve(dirname(helper), 'factory.mjs');
   await access(resolve(dirname(helper), '../references/factory-roles.md'));
   const operations = JSON.parse(execFileSync(process.execPath, [factory], { encoding: 'utf8' }));
@@ -107,7 +112,7 @@ for (const agent of ['codex', 'claude', 'grok', 'both', 'all']) {
     const names = await readdir(home);
     assert.ok(!names.includes('installer') && !names.includes('bin') && !names.includes('package.json') && !names.includes('node_modules'));
     const project = await localProject(root);
-    await assertHelper(join(home, 'skills/cc/scripts/init.mjs'), project);
+    await assertHelper(join(home, 'skills/ready/cc/scripts/init.mjs'), project);
     for (const folder of selectionFolders[agent]) await assertHelper(join(home, folder, 'skills/cc/scripts/init.mjs'), project);
   });
 }
@@ -118,7 +123,7 @@ test('repeat and interrupted installs preserve configuration and user records', 
   await installHome(home, 'codex');
   await mkdir(join(home, 'repos/custom'));
   await writeFile(join(home, 'repos/custom/config.md'), 'chosen settings');
-  const missing = join(home, 'skills/cc/assets/config.md');
+  const missing = join(home, 'skills/ready/cc/assets/config.md');
   await rm(missing);
   await installHome(home, 'codex');
   await access(missing);
@@ -141,7 +146,7 @@ test('conflicting files cause no writes', async t => {
 });
 
 const baselineValidator = await readFile(new URL('../installer/baselines/0.3.0/skills/cc/scripts/home.mjs', import.meta.url));
-const currentValidator = await readFile(new URL('../skills/cc/scripts/home.mjs', import.meta.url));
+const currentValidator = await readFile(new URL('../skills/ready/cc/scripts/home.mjs', import.meta.url));
 assert.ok(!baselineValidator.equals(currentValidator));
 
 function discoveryFolder(agent) {
@@ -156,6 +161,12 @@ async function installedHome(t, agent) {
 }
 
 async function asLegacyHome(home, version, agents) {
+  const projection = await projectSkills(home);
+  await rm(join(home, 'skills'), { recursive: true });
+  for (const [path, bytes] of projection) if (path.startsWith('skills/')) {
+    await mkdir(dirname(join(home, path)), { recursive: true });
+    await writeFile(join(home, path), bytes);
+  }
   const marker = JSON.parse(await readFile(join(home, '.command-center.json'), 'utf8'));
   marker.templateVersion = version;
   marker.agents = agents;
@@ -229,11 +240,13 @@ test('add-agent accepts current validators and replaces baseline copies', async 
 
 test('add-agent copies canonical customizations for claude on a current grok home', async t => {
   const { home } = await installedHome(t, 'grok');
-  await writeFile(join(home, 'skills/idea-refine/SKILL.md'), 'kept customization\n');
+  const customized = (await readFile(join(home, 'skills/intake/idea-refine/SKILL.md'), 'utf8')) + '\nkept customization\n';
+  await writeFile(join(home, 'skills/intake/idea-refine/SKILL.md'), customized);
   const result = await addAgent(home, 'claude');
   assert.deepEqual(result.agents, ['claude', 'grok']);
   assert.equal(JSON.parse(await readFile(join(home, '.command-center.json'), 'utf8')).templateVersion, '0.4.0');
-  assert.equal(await readFile(join(home, '.claude/skills/idea-refine/SKILL.md'), 'utf8'), 'kept customization\n');
+  assert.match(await readFile(join(home, '.claude/skills/idea-refine/SKILL.md'), 'utf8'), /kept customization/);
+  assert.equal(await readFile(join(home, 'skills/intake/idea-refine/SKILL.md'), 'utf8'), customized);
   await verifySkills(home, '.claude');
   await assert.rejects(access(join(home, 'CLAUDE.md')));
 });
@@ -310,15 +323,28 @@ test('invalid agent and marker are rejected before installation', async t => {
 test('packed npm executable creates a complete home offline', async t => {
   const root = await fixture(t);
   assert.ok(process.env.npm_execpath, 'Run the tests using npm test');
+  const isolated = join(root, 'package source');
+  await mkdir(isolated);
+  for (const name of ['package.json', 'package-lock.json', 'bin', 'installer', 'skills', 'references', 'discovery', '.codex-plugin', 'LICENSE', 'LICENSE.agent-skills', 'UPSTREAM.md', 'README.md', 'RELEASING.md', 'node_modules']) {
+    await cp(join(source, name), join(isolated, name), { recursive: true });
+  }
   const npm = (...args) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
-    cwd: source, encoding: 'utf8', timeout: 120000,
+    cwd: isolated, encoding: 'utf8', timeout: 120000, env: { ...process.env, npm_config_cache: join(root, 'npm-cache') },
   });
   const packed = JSON.parse(npm('pack', '--json', '--pack-destination', root));
   const tarball = join(root, packed[0].filename);
   const shipped = packed[0].files.map(file => file.path);
+  assert.ok(shipped.includes('skills/ready/cc/scripts/skill-policy.mjs'));
+  assert.ok(shipped.includes('discovery/skills/cc/SKILL.md'));
   assert.ok(shipped.includes('installer/template/gitignore'));
   assert.ok(shipped.includes('installer/baselines/0.3.0/skills/cc/scripts/home.mjs'));
   assert.ok(shipped.every(path => !path.startsWith('tests/') && !path.startsWith('jobs/') && !path.startsWith('projects/')));
+  for (const agent of ['codex', 'claude', 'all']) {
+    const home = join(root, `packed-${agent}`);
+    npm('exec', '--offline', '--yes', `--package=${tarball}`, '--', 'create-command-center', home, '--agent', agent);
+    await verifySkills(home, '.');
+    for (const folder of selectionFolders[agent]) await verifySkills(home, folder);
+  }
   const destination = join(root, 'installed home');
   const output = npm('exec', '--offline', '--yes', `--package=${tarball}`, '--', 'create-command-center', destination, '--agent', 'both');
   assert.match(output, /Command Center installed/);
@@ -343,7 +369,7 @@ test('packed npm executable creates a complete home offline', async t => {
   assert.ok(!(await readdir(grokHome)).includes('node_modules'));
   const grokPrepared = JSON.parse(execFileSync(process.execPath, [join(grokHome, '.grok/skills/cc/scripts/init.mjs'), 'prepare', '--cwd', project], { encoding: 'utf8' }));
   assert.equal(grokPrepared.ok, true);
-  assert.ok(grokPrepared.catalog.skills.some(skill => skill.name === 'cc' && skill.path === 'skills/cc/SKILL.md'));
+  assert.ok(grokPrepared.catalog.skills.some(skill => skill.name === 'cc' && skill.path === 'skills/ready/cc/SKILL.md'));
   const addHome = join(root, 'add home');
   npm('exec', '--offline', '--yes', `--package=${tarball}`, '--', 'create-command-center', addHome, '--agent', 'codex');
   const added = npm('exec', '--offline', '--yes', `--package=${tarball}`, '--', 'create-command-center', addHome, '--add-agent', 'grok');

@@ -1,6 +1,8 @@
 # Software Factory Command Center
 
-This is a software factory home repo with a bundled Node.js runtime. The user-facing `cc` skill is `skills/cc/SKILL.md`. Start your coding agent here and invoke `cc` to register projects or coordinate software work using the shared agent skills.
+This is a software factory home repo with a bundled Node.js runtime. The user-facing `cc` skill is `skills/ready/cc/SKILL.md`. Start your coding agent here and invoke `cc` to register projects or coordinate software work using the shared agent skills.
+
+See [workflow ownership, role selection, host discovery, and migration](skills/ready/cc/references/workflow-skills.md) for the complete ownership map and compatibility contract. Canonical skills use `skills/<workflow-step>/<skill>`; host discovery copies remain flat by skill name. Selection controls the helper's advertised catalog, not globally installed skills.
 
 The 26 upstream engineering skills and shared references are preserved from the commit recorded in [UPSTREAM.md](UPSTREAM.md). Central project configurations live under `repos/`. Job requests, config snapshots, progress, checks, reviews, and feedback live under `jobs/`. Product source remains in its own checkout.
 
@@ -26,7 +28,7 @@ To add one agent to an existing home from `0.3.0` or this release, without upgra
 npx create-command-center@latest . --add-agent grok
 ```
 
-`--add-agent` accepts `codex`, `claude`, or `grok`. It copies that home's canonical `skills/` and `references/` into the agent's discovery directories, so home-specific skill edits are kept. It updates the home validator where the installed copy still matches the `0.3.0` baseline, records the agent in the existing marker, and keeps the home's template version. Repeat the command after it succeeds and it makes no further changes. Combine it with `--agent` and the command stops before writing.
+`--add-agent` accepts `codex`, `claude`, or `grok`. It projects that home's canonical skills and references into flat named discovery directories, so valid home-specific skill edits are kept. It updates unchanged published 0.3.0/0.4.0 home validators, records the agent in the existing marker, and keeps the home's template version. Repeat the command after it succeeds and it makes no further changes. Combine it with `--agent` and the command stops before writing. This operation never migrates the canonical layout.
 
 Open a fresh agent session in the generated home and select the `cc` skill. Ask `cc init https://github.com/owner/project` in chat. The agent clones into `projects/owner/project` and registers the project centrally. GitHub SSH clone URLs, `owner/repo` shorthand, and local paths are also supported.
 
@@ -52,7 +54,7 @@ For local development and tarball installation before npm publication, see [rele
 
 Start authorizes job branch commits, pushes, and PR creation after checks and review. The workflows honor approvals already given. Merge and deployment remain human decisions. The invoking agent routes factory operations through the bundled helper. Progress and checks must be backed by recorded evidence.
 
-The bundled factory helper owns job state, isolated worktrees, process logs, frozen checks, independent role reviews, and exact-commit PR delivery. Defaults are three concurrent jobs per repository, three rework rounds, and 30 minutes per role or check. Roles use the invoking host's CLI and default model unless configured otherwise. Missing CLIs or permissions block work without switching providers. GitHub queues use `cc:queued`; newly arriving issues wait for the next run. The workflow has no dependency on a separately installed factory skill. See [factory operations and recovery](skills/cc/references/jobs.md) for the helper contract and configuration.
+The bundled factory helper owns job state, isolated worktrees, process logs, frozen checks, independent role reviews, and exact-commit PR delivery. Defaults are three concurrent jobs per repository, three rework rounds, and 30 minutes per role or check. Roles use the invoking host's CLI and default model unless configured otherwise. Missing CLIs or permissions block work without switching providers. GitHub queues use `cc:queued`; newly arriving issues wait for the next run. The workflow has no dependency on a separately installed factory skill. See [factory operations and recovery](skills/ready/cc/references/jobs.md) for the helper contract and configuration.
 
 The factory implementation in this checkout is unreleased; installing public `0.4.0` does not include these new job helpers. Test this checkout's tarball using the release instructions. No existing customized home is overwritten automatically.
 
@@ -76,6 +78,6 @@ The helper then revalidates the checkout, saves config atomically, and adds its 
 
 Generated facts, instruction scopes, and structural check results are saved in marked Markdown sections. Custom commands remain available with explicit validation limits. Project-specific meaning and actual runtime verification belong to the agent's engineering workflow.
 
-The helper contract and structured details format are documented in [registration](skills/cc/references/registration.md). It is used by the skill through chat. Temporary helper reports and locks are separate from the versionable repo configs and job records.
+The helper contract and structured details format are documented in [registration](skills/ready/cc/references/registration.md). It is used by the skill through chat. Temporary helper reports and locks are separate from the versionable repo configs and job records.
 
 Original Command Center code is licensed under [MIT](LICENSE). The upstream skills retain their [MIT license notice](LICENSE.agent-skills).

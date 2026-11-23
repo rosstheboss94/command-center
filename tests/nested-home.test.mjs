@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { validateHome } from '../skills/ready/cc/scripts/home.mjs';
+test('nested homes validate and competing flat cc or incomplete migration fails closed', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'cc-home-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, 'repos'));
+  await mkdir(join(home, 'skills/ready/cc'), { recursive: true });
+  await writeFile(join(home, 'skills/ready/cc/SKILL.md'), '# cc');
+  await writeFile(join(home, 'AGENTS.md'), '# Home');
+  await writeFile(join(home, '.command-center.json'), JSON.stringify({ kind: 'command-center-home', templateVersion: '0.4.0', agents: [] }));
+  assert.equal((await validateHome(home)).home, home);
+  await mkdir(join(home, 'skills/cc'));
+  await assert.rejects(validateHome(home), /conflict/i);
+  await rm(join(home, 'skills/cc'), { recursive: true });
+  await writeFile(join(home, '.skill-migration.lock'), '{"pid":123}');
+  await assert.rejects(validateHome(home), /migration owns/);
+  await rm(join(home, '.skill-migration.lock'));
+  await writeFile(join(home, '.skill-migration.json'), JSON.stringify({ complete: false }));
+  await assert.rejects(validateHome(home), /migration/i);
+});

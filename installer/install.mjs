@@ -2,6 +2,9 @@ import { readFile, readdir, mkdir, lstat, writeFile, rename } from 'node:fs/prom
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { projectSkills } from './projection.mjs';
+import { createHash } from 'node:crypto';
+import { validateHome } from '../skills/ready/cc/scripts/home.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const markerName = '.command-center.json';
@@ -79,13 +82,13 @@ async function managedFiles(agents) {
   files.delete('gitignore');
   const skills = await collect(join(packageRoot, 'skills'));
   const references = await collect(join(packageRoot, 'references'));
+  const projection = await projectSkills(packageRoot);
   for (const [name, contents] of skills) files.set(join('skills', name), contents);
   for (const [name, contents] of references) files.set(join('references', name), contents);
   for (const name of ['LICENSE', 'LICENSE.agent-skills', 'UPSTREAM.md']) files.set(name, await readFile(join(packageRoot, name)));
   for (const agent of agents) {
     const folder = agentFolder(agent);
-    for (const [name, contents] of skills) files.set(join(folder, 'skills', name), contents);
-    for (const [name, contents] of references) files.set(join(folder, 'references', name), contents);
+    for (const [name, contents] of projection) files.set(join(folder, name), contents);
   }
   if (agents.includes('claude')) files.set('CLAUDE.md', Buffer.from('Read AGENTS.md for this home repo’s instructions.\n'));
   return files;
@@ -112,6 +115,7 @@ export async function installHome(target, selection) {
     throw new Error('Git must be installed and available on PATH.');
   }
   const destination = await requireDestination(target);
+  if (await exists(join(destination, '.skill-migration.json')) || await exists(join(destination, '.skill-migration.lock'))) await validateHome(destination);
   const metadata = await packageMetadata();
   const markerPath = join(destination, markerName);
   let previous;
@@ -126,6 +130,7 @@ export async function installHome(target, selection) {
     }
   }
   const agents = sortedAgents([...(previous?.agents || []), ...selections[selection]]);
+  if (previous && await exists(join(destination, 'skills/cc')) && await exists(join(packageRoot, 'skills/ready/cc'))) throw new Error('Legacy flat home: use explicit --migrate-skills preview/apply or --add-agent; normal installation never migrates layouts.');
   const files = await managedFiles(agents);
   const pending = [];
   const conflicts = [];
@@ -164,6 +169,7 @@ export async function addAgent(target, agent) {
   const destination = resolve(target);
   const destinationInfo = await fileInfo(destination);
   if (!realDirectory(destinationInfo)) throw addAgentError(metadata.version, 'The destination is not a home directory.');
+  await validateHome(destination);
   const markerPath = join(destination, markerName);
   const markerInfo = await fileInfo(markerPath);
   if (!realFile(markerInfo)) throw addAgentError(metadata.version, 'The home marker is missing or linked.');
@@ -177,10 +183,14 @@ export async function addAgent(target, agent) {
       new Set(previous.agents).size !== previous.agents.length) {
     throw addAgentError(metadata.version, 'The home marker is unsupported.');
   }
-  for (const name of ['repos', 'skills', 'skills/cc', 'references']) {
+  const nested = await exists(join(destination, 'skills/ready/cc'));
+  if (nested && await exists(join(destination, 'skills/cc'))) throw addAgentError(metadata.version, 'Conflicting flat/nested cc installations.');
+  const cc = nested ? 'skills/ready/cc' : 'skills/cc';
+  const canonicalValidator = join(cc, 'scripts/home.mjs');
+  for (const name of ['repos', 'skills', ...(nested ? ['skills/ready'] : []), cc, 'references']) {
     if (!realDirectory(await fileInfo(join(destination, name)))) throw addAgentError(metadata.version, `Required directory is missing or linked: ${name}`);
   }
-  for (const name of ['AGENTS.md', 'skills/cc/SKILL.md', 'skills/cc/scripts/init.mjs', validatorRel]) {
+  for (const name of ['AGENTS.md', `${cc}/SKILL.md`, `${cc}/scripts/init.mjs`, canonicalValidator]) {
     if (!realFile(await fileInfo(join(destination, name)))) throw addAgentError(metadata.version, `Required file is missing or linked: ${name}`);
   }
   for (const name of previous.agents) {
@@ -193,10 +203,9 @@ export async function addAgent(target, agent) {
     }
   }
 
-  const currentValidator = await readFile(join(packageRoot, validatorRel));
+  const currentValidator = await readFile(join(packageRoot, await exists(join(packageRoot, 'skills/ready/cc')) ? 'skills/ready/cc/scripts/home.mjs' : validatorRel));
   const baselineValidator = await readFile(join(packageRoot, baselineValidatorRel));
-  const skills = await collect(join(destination, 'skills'));
-  const references = await collect(join(destination, 'references'));
+  const projection = await projectSkills(destination);
   const nextAgents = sortedAgents([...previous.agents, agent]);
   const folder = agentFolder(agent);
   const pending = [];
@@ -211,14 +220,14 @@ export async function addAgent(target, agent) {
     else if (!realFile(info) || !(await readFile(path)).equals(contents)) conflicts.push(rel);
   }
 
-  for (const [name, contents] of skills) {
-    const rel = join(folder, 'skills', name);
+  for (const [name, contents] of projection) {
+    const rel = join(folder, name);
     if (rel === join(folder, validatorRel)) continue;
     await queueCreate(rel, contents);
   }
-  for (const [name, contents] of references) await queueCreate(join(folder, 'references', name), contents);
 
-  for (const rel of [validatorRel, ...nextAgents.map(name => join(agentFolder(name), validatorRel))]) {
+  const legacyInventory = JSON.parse(await readFile(join(packageRoot, await exists(join(packageRoot, 'skills/ready/cc')) ? 'skills/ready/cc/assets/release-baselines/0.4.0.json' : 'skills/cc/assets/release-baselines/0.4.0.json')));
+  for (const rel of [canonicalValidator, ...nextAgents.map(name => join(agentFolder(name), validatorRel))]) {
     const path = join(destination, rel);
     await checkParents(destination, path);
     const info = await fileInfo(path);
@@ -233,7 +242,7 @@ export async function addAgent(target, agent) {
     }
     const bytes = await readFile(path);
     if (bytes.equals(currentValidator)) continue;
-    if (bytes.equals(baselineValidator)) replacements.push({ path, contents: currentValidator });
+    if (bytes.equals(baselineValidator) || createHash('sha256').update(bytes).digest('hex') === legacyInventory.packageFiles['skills/cc/scripts/home.mjs'].sha256) replacements.push({ path, contents: currentValidator });
     else conflicts.push(rel);
   }
 

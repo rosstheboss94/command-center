@@ -4,9 +4,9 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { prepare, register } from '../skills/cc/scripts/init.mjs';
-import { discoverHome } from '../skills/cc/scripts/home.mjs';
-import { applicableInstructions } from '../skills/cc/scripts/inspection.mjs';
+import { prepare, register } from '../skills/ready/cc/scripts/init.mjs';
+import { discoverHome } from '../skills/ready/cc/scripts/home.mjs';
+import { applicableInstructions } from '../skills/ready/cc/scripts/inspection.mjs';
 
 async function write(root, path, text) {
   await mkdir(join(root, path, '..'), { recursive: true });

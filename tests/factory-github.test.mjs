@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { queueIssues, syncLabel, processQueue, restartOptions, blockCommentBody, commentOnBlock } from '../skills/cc/scripts/factory/github.mjs';
+import { queueIssues, syncLabel, processQueue, restartOptions, blockCommentBody, commentOnBlock } from '../skills/ready/cc/scripts/factory/github.mjs';
 const context = { repo: 'owner--repo', identity: 'github.com/owner/repo', checkout: '.', config: { concurrency: 3 } };
 test('queue pagination excludes pull requests and preserves oldest-first snapshot', async () => {
   const calls = [];
@@ -38,10 +38,10 @@ test('GitHub errors never become empty successful queues', async () => {
   await assert.rejects(queueIssues(context, { run: async () => ({ code: 1, stderr: 'authentication failed' }) }), /authentication failed/);
 });
 
-import { deliverJob, addIssue } from '../skills/cc/scripts/factory/github.mjs';
+import { deliverJob, addIssue } from '../skills/ready/cc/scripts/factory/github.mjs';
 import { fixture } from './factory-fixture.mjs';
-import { loadContext } from '../skills/cc/scripts/factory/project.mjs';
-import { createJob, saveJob } from '../skills/cc/scripts/factory/store.mjs';
+import { loadContext } from '../skills/ready/cc/scripts/factory/project.mjs';
+import { createJob, saveJob } from '../skills/ready/cc/scripts/factory/store.mjs';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 

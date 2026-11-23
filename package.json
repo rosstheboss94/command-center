@@ -23,6 +23,8 @@
     "installer/",
     "skills/",
     "references/",
+    "discovery/",
+    ".codex-plugin/",
     "LICENSE",
     "LICENSE.agent-skills",
     "UPSTREAM.md",
@@ -31,7 +33,9 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build:parsers": "node installer/build-parsers.mjs",
-    "prepack": "npm run build:parsers"
+    "build:discovery": "node installer/build-discovery.mjs",
+    "check:discovery": "node installer/build-discovery.mjs --check",
+    "prepack": "npm run build:parsers && npm run check:discovery"
   },
   "license": "MIT",
   "devDependencies": {

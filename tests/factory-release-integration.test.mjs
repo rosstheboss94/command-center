@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './factory-fixture.mjs';
-import { loadContext } from '../skills/cc/scripts/factory/project.mjs';
-import { createJob } from '../skills/cc/scripts/factory/store.mjs';
-import { runJob, resumeJob } from '../skills/cc/scripts/factory/engine.mjs';
-import { execute, hash, git } from '../skills/cc/scripts/factory/io.mjs';
+import { loadContext } from '../skills/ready/cc/scripts/factory/project.mjs';
+import { createJob } from '../skills/ready/cc/scripts/factory/store.mjs';
+import { runJob, resumeJob } from '../skills/ready/cc/scripts/factory/engine.mjs';
+import { execute, hash, git } from '../skills/ready/cc/scripts/factory/io.mjs';
 
 test('existing frozen jobs receive offline release evidence without changing their request/settings', async t => {
   const f = await fixture(t), context = await loadContext(f.home, f.repo, 'codex');
@@ -15,6 +15,10 @@ test('existing frozen jobs receive offline release evidence without changing the
   const seen = [];
   const result = await runJob(f.home, f.repo, job.id, { runRole: async ({ role, commit, context: current }) => {
     assert.deepEqual(current.releaseInputs.map(item => item.version), ['0.3.0', '0.4.0']);
+    if (role === 'intake') {
+      assert.deepEqual(current.skills.map(item => item.name), ['context-engineering', 'idea-refine', 'interview-me', 'source-driven-development', 'using-agent-skills']);
+      assert.ok(current.skills.every(item => item.workflowStep && item.selectionReason));
+    }
     for (const entry of current.releaseInputs) assert.ok(JSON.parse(await readFile(entry.inventoryPath, 'utf8')).managedFiles);
     seen.push(role);
     return { verdict: role === 'intake' ? 'ACCEPT' : role === 'builder' ? 'BLOCKED' : 'READY', commit,
@@ -36,6 +40,8 @@ test('provider raw structured findings are preserved while the actual blocker is
     if (file !== 'codex') return execute(file, args, options);
     assert.match(options.input, /Verified release inputs/);
     assert.match(options.input, /0\.3\.0\.json/);
+    const advertised = JSON.parse(/^Relevant shared skill catalog: (.+)$/m.exec(options.input)[1]);
+    assert.deepEqual(advertised.map(item => item.name), ['context-engineering', 'idea-refine', 'interview-me', 'source-driven-development', 'using-agent-skills']);
     const commit = /^COMMIT: (.+)$/m.exec(options.input)[1];
     const text = JSON.stringify({ verdict: 'NEEDS_INFO', commit, findings: [finding], evidence: ['Observed fixture input'] });
     return { code: 0, stderr: '', stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } }) + '\n' + JSON.stringify({ type: 'turn.completed' }) };
