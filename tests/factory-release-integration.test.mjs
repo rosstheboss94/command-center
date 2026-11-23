@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './factory-fixture.mjs';
 import { loadContext } from '../skills/cc/scripts/factory/project.mjs';
 import { createJob } from '../skills/cc/scripts/factory/store.mjs';
-import { runJob } from '../skills/cc/scripts/factory/engine.mjs';
-import { execute, hash } from '../skills/cc/scripts/factory/io.mjs';
+import { runJob, resumeJob } from '../skills/cc/scripts/factory/engine.mjs';
+import { execute, hash, git } from '../skills/cc/scripts/factory/io.mjs';
 
 test('existing frozen jobs receive offline release evidence without changing their request/settings', async t => {
   const f = await fixture(t), context = await loadContext(f.home, f.repo, 'codex');
@@ -44,4 +44,27 @@ test('provider raw structured findings are preserved while the actual blocker is
   assert.equal(typeof result.reports.intake.findings[0], 'string');
   const raw = await readFile(join(job.directory, 'attempts', result.attempts[0].id, 'stdout.log'), 'utf8');
   assert.deepEqual(JSON.parse(JSON.parse(raw.split('\n')[0]).item.text).findings, [finding]);
+});
+
+test('updating the base of an unfinished build resumes the builder instead of skipping its work', async t => {
+  const f = await fixture(t), context = await loadContext(f.home, f.repo, 'codex');
+  const job = await createJob(context, 'Implement app feature after restoring release inputs');
+  const report = ({ role, commit }) => ({ verdict: role === 'intake' ? 'ACCEPT' : role === 'approver' ? 'APPROVE' : 'READY', commit, findings: [], evidence: ['Fixture evidence'], artifact: '# Artifact' });
+  const blocked = await runJob(f.home, f.repo, job.id, { runRole: async args => {
+    if (args.role === 'builder') throw new Error('Old report parser rejected the blocker');
+    return report(args);
+  } });
+  assert.equal(blocked.interruptedStage, 'build');
+  await writeFile(join(f.project, 'infrastructure.txt'), 'release input fix\n');
+  await git(['add', 'infrastructure.txt'], f.project); await git(['commit', '-m', 'Fix infrastructure'], f.project);
+  await git(['merge', '--ff-only', 'main'], blocked.worktree);
+  let built = false;
+  const result = await resumeJob(f.home, f.repo, job.id, { runRole: async args => {
+    if (args.role === 'builder') { built = true; await writeFile(join(args.worktree, 'app.txt'), 'feature implemented\n'); }
+    return report(args);
+  }, deliver: async state => ({ url: 'https://example.invalid/pr', head: state.commit }) });
+  assert.equal(result.stage, 'ready', result.blocker);
+  assert.equal(built, true);
+  assert.equal(result.round, 2);
+  assert.equal(await readFile(join(result.worktree, 'app.txt'), 'utf8'), 'feature implemented\n');
 });

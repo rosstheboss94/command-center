@@ -82,7 +82,8 @@ async function prepareWorktree(job, context, run) {
   if (job.commit && job.commit !== commit) {
     job.checks = null;
     for (const name of Object.keys(job.reports)) if (name.startsWith('review-') || name === 'approver') delete job.reports[name];
-    if (!['intake', 'spec', 'plan'].includes(job.stage)) job.stage = 'verify';
+    // Updating infrastructure/base commits does not complete an unfinished build.
+    if (!['intake', 'spec', 'plan', 'build'].includes(job.stage)) job.stage = 'verify';
     await saveJob(job, 'HEAD changed; invalidated verification, reviews, and approval.');
   }
   job.commit = commit;
