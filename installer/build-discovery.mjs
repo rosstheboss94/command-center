@@ -22,4 +22,4 @@ if (!check) {
     await writeFile(absolute, bytes);
   }
 }
-console.log(`${check ? 'Verified' : 'Generated'} ${expected.size} discovery files.`);
+console.error(`${check ? 'Verified' : 'Generated'} ${expected.size} discovery files.`);
