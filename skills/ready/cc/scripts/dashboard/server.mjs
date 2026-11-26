@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createBoardReader } from './data.mjs';
 import { lanes, laneNames } from './model.mjs';
@@ -11,7 +11,10 @@ import { queueIssues } from '../factory/github.mjs';
 import { loadJob } from '../factory/store.mjs';
 import { prepare, register, savedSettings } from '../init.mjs';
 import { effectiveConfig, positive } from '../factory/model.mjs';
-import { identifier, hash, exists, json, safe } from '../factory/io.mjs';
+import { identifier, hash, exists, json, safe, atomic, alive } from '../factory/io.mjs';
+import { assertActive, updateStatus } from '../update/state.mjs';
+import { startUpdateWatcher } from '../update/watch.mjs';
+import { archives, archivedHistory, archiveHome, createSuccessor } from '../update/history.mjs';
 
 const assets = { '/': ['index.html', 'text/html'], '/app.mjs': ['app.mjs', 'text/javascript'], '/style.css': ['style.css', 'text/css'] };
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -23,10 +26,21 @@ async function body(request) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw error('Expected an object.');
   return value;
 }
-export async function startDashboard({ home, host, port = 4310, schedule = true, readBoard = createBoardReader(home) }) {
+export async function startDashboard({ home, host, port = 4310, schedule = true, readBoard = createBoardReader(home), watchUpdates = schedule }) {
   if (!['codex', 'claude', 'grok'].includes(host)) throw error('Supply --host codex, claude, or grok.');
   const token = randomBytes(32).toString('hex'), prepared = new Map();
-  let origin, boardPromise;
+  let origin, boardPromise, watcher, timer;
+  const nonce = randomUUID(), shutdownToken = randomBytes(32).toString('hex');
+  const close = () => new Promise((resolve, reject) => {
+    watcher?.close(); clearInterval(timer);
+    server.close(async cause => {
+      if (schedule) {
+        const path = join(home, '.cc/dashboard/server.json');
+        if (await exists(path) && (await json(path)).nonce === nonce) await unlink(path);
+      }
+      cause ? reject(cause) : resolve();
+    }); server.closeIdleConnections();
+  });
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     response.setHeader('X-Content-Type-Options', 'nosniff'); response.setHeader('Referrer-Policy', 'no-referrer'); response.setHeader('Cache-Control', 'no-store');
@@ -35,6 +49,11 @@ export async function startDashboard({ home, host, port = 4310, schedule = true,
       if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)
         || request.headers['sec-fetch-site'] === 'cross-site') throw error('Foreign origin or Host refused.', 403);
       const url = new URL(request.url, origin);
+      if (request.method === 'GET' && url.pathname === '/api/identity') return send(200, { home, pid: process.pid, nonce });
+      if (request.method === 'POST' && url.pathname === '/api/shutdown') {
+        if (request.headers.origin !== origin || request.headers['x-cc-token'] !== shutdownToken) throw error('Dashboard shutdown refused.', 403);
+        send(200, { stopped: true }); setImmediate(() => { void close(); }); return;
+      }
       if (request.method === 'GET' && assets[url.pathname]) {
         const [file, type] = assets[url.pathname]; let bytes = await readFile(new URL(`./public/${file}`, import.meta.url));
         if (file === 'index.html') bytes = Buffer.from(bytes.toString().replace('__CC_TOKEN__', token));
@@ -42,7 +61,8 @@ export async function startDashboard({ home, host, port = 4310, schedule = true,
       }
       if (request.method === 'GET' && url.pathname === '/api/board') {
         boardPromise ||= readBoard({ refresh: url.searchParams.get('refresh') === '1' }).finally(() => { boardPromise = null; });
-        return send(200, { ...await boardPromise, lanes, laneNames, operations: await tasks(home), settings: await globalSettings(home), host });
+        return send(200, { ...await boardPromise, lanes, laneNames, operations: await tasks(home), settings: await globalSettings(home), host,
+          archives: await archives(home), archivedHistory: await archivedHistory(home), update: await updateStatus(home) });
       }
       if (request.method === 'GET' && url.pathname === '/api/settings') {
         const repo = url.searchParams.get('repo');
@@ -55,19 +75,30 @@ export async function startDashboard({ home, host, port = 4310, schedule = true,
         return send(200, { markdown: project.markdown, markdownHash: hash(project.markdown), settings: saved?.settings || {}, config, conflict });
       }
       if (request.method === 'GET' && url.pathname === '/api/job') {
+        if (url.searchParams.has('archive')) {
+          const owner = await archiveHome(home, url.searchParams.get('archive'));
+          return send(200, await json(await safe(owner, join(owner, 'jobs', identifier(url.searchParams.get('repo')), identifier(url.searchParams.get('job')), 'state.json'))));
+        }
         const { command } = await import('../factory.mjs');
         return send(200, await command('status', { home, repo: identifier(url.searchParams.get('repo')), job: identifier(url.searchParams.get('job')) }));
       }
       if (request.method === 'GET' && url.pathname === '/api/evidence') {
         const repo = identifier(url.searchParams.get('repo')), job = identifier(url.searchParams.get('job')), path = url.searchParams.get('path');
         if (!/^(?:request|spec|plan|progress)\.md$|^(?:reports|attempts)\/[a-zA-Z0-9._-]+\/(?:stdout|stderr)\.log$|^reports\/[a-zA-Z0-9._-]+\.json$/.test(path)) throw error('Unsupported evidence file.');
-        const absolute = await safe(home, join(home, 'jobs', repo, job, path));
+        const owner = url.searchParams.has('archive') ? await archiveHome(home, url.searchParams.get('archive')) : home;
+        const absolute = await safe(owner, join(owner, 'jobs', repo, job, path));
         const text = await readFile(absolute, 'utf8'); return send(200, { text: text.slice(0, 200000), truncated: text.length > 200000 });
       }
       if (request.method !== 'POST') throw error('Not found.', 404);
       const received = Buffer.from(request.headers['x-cc-token'] || '');
       if (request.headers.origin !== origin || received.length !== token.length || !timingSafeEqual(received, Buffer.from(token))) throw error('Session token and same origin are required.', 403);
       const input = await body(request);
+      await assertActive(home);
+      if (input.archive && url.pathname !== '/api/successor') throw error('Archived jobs are read-only; create an explicit successor.', 403);
+      if (url.pathname === '/api/successor') {
+        const job = await createSuccessor(home, input.archive, identifier(input.repo), identifier(input.job), host);
+        return send(201, { job, operation: await enqueue(home, { action: 'resume', repo: job.repo, job: job.id }, `${job.repo}:${job.id}:job`) });
+      }
       if (url.pathname === '/api/recover') return send(200, await recoverTask(home, input.operation));
       if (url.pathname === '/api/settings') {
         if (!input.repo) {
@@ -139,10 +170,16 @@ export async function startDashboard({ home, host, port = 4310, schedule = true,
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   origin = `http://127.0.0.1:${server.address().port}`;
+  if (schedule) {
+    const path = await safe(home, join(home, '.cc/dashboard/server.json'));
+    if (await exists(path) && alive((await json(path)).pid)) { await close(); throw error('A recorded dashboard is already running for this home.'); }
+    await atomic(path, { home, pid: process.pid, nonce, shutdownToken, url: `${origin}/`, host });
+  }
   let ticking = false;
-  const timer = schedule ? setInterval(async () => {
+  timer = schedule ? setInterval(async () => {
     if (ticking) return; ticking = true;
     try { await dispatch(home, host); } catch (cause) { console.error(`Dashboard scheduler: ${cause.message}`); } finally { ticking = false; }
   }, 2000) : null;
-  return { url: `${origin}/`, token, close: () => new Promise((resolve, reject) => { clearInterval(timer); server.close(cause => cause ? reject(cause) : resolve()); server.closeIdleConnections(); }) };
+  if (watchUpdates) watcher = startUpdateWatcher(home);
+  return { url: `${origin}/`, token, close };
 }

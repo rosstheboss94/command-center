@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { exists, safe, hash, json, execute } from '../factory/io.mjs';
 
 const managed = ['skills', 'references', '.agents/skills', '.agents/references', '.claude/skills', '.claude/references', '.grok/skills', '.grok/references', 'AGENTS.md', 'CLAUDE.md', 'LICENSE', 'LICENSE.agent-skills', 'UPSTREAM.md', '.gitignore'];
@@ -25,7 +26,7 @@ export function canonical(path) {
 }
 // Legacy homes use their committed installation as the baseline. A discovery
 // copy is generated only when its bytes match the old canonical source.
-export async function customizations(home, candidate) {
+export async function customizations(home, candidate, { history = home } = {}) {
   const actual = await inventory(home), target = candidate ? await inventory(candidate) : {}, changes = [], conflicts = [];
   const manifest = join(home, '.cc/install-manifest.json');
   let baseline;
@@ -42,9 +43,17 @@ export async function customizations(home, candidate) {
   }
   for (const path of [...new Set([...Object.keys(baseline), ...Object.keys(actual)])].sort()) {
     if (actual[path] === baseline[path]) continue;
+    let staleGenerated = false;
+    if (!await exists(manifest) && /^\.(?:agents|claude|grok)\//.test(path) && actual[path]) {
+      const source = path.replace(/^\.(?:agents|claude|grok)\//, '');
+      const bytes = await readFile(join(home, path));
+      const object = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+      const result = await execute('git', ['rev-list', '--objects', 'HEAD', '--', source], { cwd: history });
+      staleGenerated = result.code === 0 && result.stdout.split(/\r?\n/).some(line => line === `${object} ${source}`);
+    }
     const reconciled = Boolean(actual[path] && (target[path] === actual[path] || target[canonical(path)] === actual[path]));
-    const change = { path, baseline: baseline[path] || null, current: actual[path] || null, reconciled };
-    changes.push(change); if (!reconciled) conflicts.push(change);
+    const change = { path, baseline: baseline[path] || null, current: actual[path] || null, reconciled, ...(staleGenerated ? { staleGenerated: true } : {}) };
+    changes.push(change); if (!reconciled && !staleGenerated) conflicts.push(change);
   }
   return { changes, conflicts };
 }

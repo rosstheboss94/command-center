@@ -31,9 +31,9 @@ function renderNavigation() {
   $('settings-nav').classList.toggle('active', view === 'settings');
 }
 function filteredCards() {
-  return data.cards.filter(card => (selected === 'all' || card.repo === selected) && (!stage || card.lane === stage)
+  return [...data.cards, ...(view === 'history' ? data.archivedHistory?.cards || [] : [])].filter(card => (selected === 'all' || card.repo === selected) && (!stage || card.lane === stage)
     && `${card.title} ${card.issue?.number || ''} ${repoName(card.repo)} ${card.blocker || ''}`.toLowerCase().includes(query.toLowerCase())
-    && (view === 'history' ? ['done', 'rejected'].includes(card.lane) : card.lane !== 'rejected' && (card.lane !== 'done' || (card.completedAt && Date.now() - new Date(card.completedAt) < 30 * 86400000))))
+    && (view === 'history' ? card.archive || ['done', 'rejected'].includes(card.lane) : card.lane !== 'rejected' && (card.lane !== 'done' || (card.completedAt && Date.now() - new Date(card.completedAt) < 30 * 86400000))))
     .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
 }
 function renderCard(card) {
@@ -53,6 +53,12 @@ function render() {
   $('board-view').hidden = settings; $('settings-view').hidden = !settings; document.querySelector('.heading-actions').hidden = settings;
   $('board-tab').classList.toggle('active', view === 'board'); $('history-tab').classList.toggle('active', view === 'history');
   $('notices').replaceChildren();
+  for (const candidate of data.update?.candidates || []) {
+    if (candidate.sourceHome !== data.update.activeHome || !['ready', 'failed', 'preparing'].includes(candidate.status)) continue;
+    $('notices').append(node('p', 'notice', candidate.status === 'ready' ? `Update ${candidate.commit.slice(0, 12)} is prepared. Activate through cc update apply ${candidate.id}.` : `Update ${candidate.commit.slice(0, 12)}: ${candidate.status}${candidate.error ? ` · ${candidate.error}` : ''}`));
+  }
+  for (const archive of data.archives || []) if (view === 'history') $('notices').append(node('p', 'notice', `Read-only archive: ${archive.home}`));
+  for (const failure of data.archivedHistory?.errors || []) if (view === 'history') $('notices').append(node('p', 'notice', `Archive ${failure.archive}: ${failure.error}`));
   for (const source of data.sources.filter(source => source.error)) $('notices').append(node('p', 'notice', `${repoName(source.repo)}: ${source.error}${source.fetchedAt ? ` · Last synced ${age(source.fetchedAt)}` : ' · GitHub state has not synced yet.'}`));
   for (const task of data.operations.filter(task => ['failed', 'interrupted', 'launching'].includes(task.status))) {
     const notice = node('p', 'notice', `${repoName(task.input.repo)} · ${task.input.action}: ${task.error || 'Starting worker; waiting for its process record.'}`);
@@ -76,7 +82,7 @@ function render() {
   }
 }
 async function details(card) {
-  if (card.job && !card.job.legacy) {
+  if (card.job && !card.job.legacy && !card.archive) {
     try { card = { ...card, job: { ...card.job, ...await api(`job?repo=${encodeURIComponent(card.repo)}&job=${encodeURIComponent(card.job.id)}`) } }; }
     catch (error) { toast(`Could not refresh job state: ${error.message}`); }
   }
@@ -91,9 +97,16 @@ async function details(card) {
     content.append(section('Workflow warnings', warnings));
   }
   const actions = node('div', 'detail-actions');
+  if (card.archive) {
+    content.append(node('p', 'notice', `Read-only archive: ${card.archive.home}. Original stages, paths and evidence are retained.`));
+    actions.append(button('Create successor in active home', async () => {
+      const result = await api('successor', { archive: card.archive.id, repo: card.repo, job: card.job.id });
+      toast(`Created successor ${result.job.id}`); $('drawer').close(); await refresh();
+    }, 'primary'));
+  }
   const pending = data.operations.some(task => task.input.repo === card.repo && (task.input.job === card.job?.id || task.input.issue?.number === card.issue?.number) && ['queued', 'launching', 'running'].includes(task.status));
-  if (!card.job && card.lane === 'queued') actions.append(button('▷ Start work', () => action({ action: 'start', repo: card.repo, issue: card.issue.number }), 'primary'));
-  if (['blocked', 'failed'].includes(card.job?.stage) && card.lane !== 'done' && !card.job.legacy) {
+  if (!card.archive && !card.job && card.lane === 'queued') actions.append(button('▷ Start work', () => action({ action: 'start', repo: card.repo, issue: card.issue.number }), 'primary'));
+  if (!card.archive && ['blocked', 'failed'].includes(card.job?.stage) && card.lane !== 'done' && !card.job.legacy) {
     const exhausted = card.job.blocking === true && card.job.interruptedStage === 'build' && card.job.round >= (card.job.maxRounds || 3);
     if (exhausted) content.append(node('p', 'notice', 'Round limit reached. Start a successor job through chat or finish this work directly; this job cannot bypass its saved limit.'));
     else {
@@ -103,14 +116,15 @@ async function details(card) {
   }
   for (const element of actions.children) element.disabled = pending;
   content.append(actions); if (pending) content.append(node('p', '', 'An action for this card is already pending.'));
-  content.append(section('Request', node('p', '', card.issue?.body || card.title)));
+  content.append(section('Request', node('p', '', card.job?.archivedRequest || card.issue?.body || card.title)));
   if (card.job) {
     const checks = card.job.checks; if (checks) content.append(section('Checks', node('pre', 'evidence', JSON.stringify(checks, null, 2))));
     const timeline = node('ol', 'timeline'); for (const event of (card.job.history || []).slice(-30).reverse()) { const item = node('li'); item.append(node('strong', '', event.message || event.stage), node('span', '', event.at || '')); timeline.append(item); }
     content.append(section('Timeline', timeline));
     const evidence = node('div', 'detail-actions');
-    for (const path of ['request.md', 'spec.md', 'plan.md', 'progress.md']) evidence.append(button(path.replace('.md', ''), async () => { const value = await api(`evidence?repo=${encodeURIComponent(card.repo)}&job=${encodeURIComponent(card.job.id)}&path=${path}`); modal(path, node('pre', 'evidence', `${value.text}${value.truncated ? '\n…truncated' : ''}`)); }));
-    for (const attempt of (card.job.attempts || []).slice(-3)) for (const stream of ['stdout', 'stderr']) evidence.append(button(`${attempt.name} ${stream}`, async () => { const value = await api(`evidence?repo=${encodeURIComponent(card.repo)}&job=${encodeURIComponent(card.job.id)}&path=${encodeURIComponent(`attempts/${attempt.id}/${stream}.log`)}`); modal(`${attempt.name} ${stream}`, node('pre', 'evidence', value.text)); }));
+    const archiveQuery = card.archive ? `&archive=${encodeURIComponent(card.archive.id)}` : '';
+    for (const path of ['request.md', 'spec.md', 'plan.md', 'progress.md']) evidence.append(button(path.replace('.md', ''), async () => { const value = await api(`evidence?repo=${encodeURIComponent(card.repo)}&job=${encodeURIComponent(card.job.id)}&path=${path}${archiveQuery}`); modal(path, node('pre', 'evidence', `${value.text}${value.truncated ? '\n…truncated' : ''}`)); }));
+    for (const attempt of (card.job.attempts || []).slice(-3)) for (const stream of ['stdout', 'stderr']) evidence.append(button(`${attempt.name} ${stream}`, async () => { const value = await api(`evidence?repo=${encodeURIComponent(card.repo)}&job=${encodeURIComponent(card.job.id)}&path=${encodeURIComponent(`attempts/${attempt.id}/${stream}.log`)}${archiveQuery}`); modal(`${attempt.name} ${stream}`, node('pre', 'evidence', value.text)); }));
     content.append(section('Saved evidence', evidence));
   }
   modal(card.title, content);

@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { atomic, hash } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { archives, archiveHome, archivedHistory, createSuccessor } from '../skills/ready/cc/scripts/update/history.mjs';
+import { startUpdateWatcher } from '../skills/ready/cc/scripts/update/watch.mjs';
+import { updateRoot } from '../skills/ready/cc/scripts/update/state.mjs';
+import { startDashboard } from '../skills/ready/cc/scripts/dashboard/server.mjs';
+import { command } from '../skills/ready/cc/scripts/factory.mjs';
+import { fixture } from './factory-fixture.mjs';
+
+test('archived history retains original stages, paths and evidence without mutating old records', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cc-history-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, 'new'), old = join(root, 'old');
+  await mkdir(join(home, 'repos'), { recursive: true }); await mkdir(join(old, 'jobs/r/j'), { recursive: true });
+  const original = JSON.stringify({ id: 'j', stage: 'blocked', worktree: 'original/path', checks: { passed: false } });
+  await writeFile(join(old, 'jobs/r/j/state.json'), original); await writeFile(join(old, 'jobs/r/j/request.md'), 'Original request\nExact bytes.');
+  await atomic(join(await updateRoot(home), 'active.json'), { activeHome: home, previousHome: old, generations: [old, home], revision: 1 });
+  const archive = (await archives(home))[0]; assert.equal(await archiveHome(home, archive.id), old);
+  await assert.rejects(archiveHome(home, '../old'), /Unknown/);
+  const history = await archivedHistory(home); assert.equal(history.cards[0].job.stage, 'blocked');
+  assert.equal(history.cards[0].job.worktree, 'original/path'); assert.deepEqual(history.cards[0].job.checks, { passed: false });
+  const app = await startDashboard({ home, host: 'codex', schedule: false, port: 0, readBoard: async () => ({ repos: [], cards: [], sources: [] }) }); t.after(() => app.close());
+  const response = await fetch(`${app.url}api/action`, { method: 'POST', headers: { Origin: new URL(app.url).origin, 'Content-Type': 'application/json', 'X-CC-Token': app.token }, body: JSON.stringify({ archive: archive.id, action: 'resume', repo: 'r', job: 'j' }) });
+  assert.equal(response.status, 403); assert.match((await response.json()).error, /read-only/);
+  const evidence = await fetch(`${app.url}api/evidence?archive=${archive.id}&repo=r&job=j&path=request.md`);
+  assert.equal((await evidence.json()).text, 'Original request\nExact bytes.');
+  assert.equal(await readFile(join(old, 'jobs/r/j/state.json'), 'utf8'), original);
+});
+test('archive successor preserves exact request and reference with fresh frozen context and empty evidence', async t => {
+  const f = await fixture(t), old = join(f.root, 'old'); await mkdir(join(old, 'jobs', f.repo, 'j'), { recursive: true });
+  const request = 'Same request\n\n$literal `text`'; await writeFile(join(old, 'jobs', f.repo, 'j/request.md'), request);
+  await atomic(join(await updateRoot(f.home), 'active.json'), { activeHome: f.home, previousHome: old, generations: [old, f.home], revision: 1 });
+  const archive = (await archives(f.home))[0], successor = await createSuccessor(f.home, archive.id, f.repo, 'j', 'codex');
+  assert.equal(successor.stage, 'intake'); assert.equal(successor.priorJob.home, old); assert.equal(successor.priorJob.requestHash, hash(request));
+  assert.deepEqual(successor.reports, {}); assert.equal(successor.checks, null); assert.equal(successor.round, 0);
+  assert.equal(await readFile(join(successor.directory, 'request.md'), 'utf8'), request);
+  await assert.rejects(command('resume', { home: old, repo: f.repo, job: 'j' }), /Invalid home|archived/);
+});
+test('dashboard discovery prepares each merged commit once and never activates it', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cc-watch-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, 'home'); await mkdir(home); let count = 0, commit = 'a'.repeat(40);
+  const watcher = startUpdateWatcher(home, { interval: 100000, preview: async () => ({ availableCommit: commit, installedCommit: 'b'.repeat(40) }), prepare: async (_home, options) => { count++; assert.equal(options.ref, commit); return { id: commit.slice(0, 12) }; } });
+  t.after(() => watcher.close());
+  for (let index = 0; index < 100 && count === 0; index++) await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 30)); await watcher.tick(); assert.equal(count, 1);
+  commit = 'c'.repeat(40); await watcher.tick(); assert.equal(count, 2);
+  assert.equal(await readFile(join(await updateRoot(home), 'discovery.json'), 'utf8').then(JSON.parse).then(value => value.status), 'ready');
+  await assert.rejects(readFile(join(await updateRoot(home), 'active.json')));
+});

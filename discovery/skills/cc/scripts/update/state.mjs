@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, open, unlink, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { exists, safe, json, atomic, alive, identifier, now } from '../factory/io.mjs';
+import { exists, safe, json, atomic, alive, identifier, now, execute } from '../factory/io.mjs';
 import { validateHome } from '../home.mjs';
 
 export async function updateRoot(home) {
@@ -16,7 +16,11 @@ export async function updateStatus(home) {
     const path = await safe(root, join(directory, identifier(name), 'journal.json'));
     if (await exists(path)) candidates.push(await json(path));
   }
-  return { ...active, root, candidates };
+  const installation = join(active.activeHome, '.cc/installation.json');
+  const sourceCommit = active.sourceCommit || (await exists(installation) ? (await json(installation)).commit
+    : (await execute('git', ['rev-parse', '--verify', 'HEAD'], { cwd: active.activeHome })).stdout?.trim() || null);
+  const helper = join(active.activeHome, await exists(join(active.activeHome, 'skills/ready/cc/scripts/factory.mjs')) ? 'skills/ready/cc/scripts/factory.mjs' : 'skills/cc/scripts/factory.mjs');
+  return { ...active, sourceCommit, root, candidates, helper, launch: [process.execPath, helper, 'dashboard', '--home', active.activeHome, '--host', 'codex'] };
 }
 export async function assertActive(home, { allowActivation = false } = {}) {
   const state = await updateStatus(home);
@@ -55,7 +59,7 @@ export async function assertIdle(home) {
       if (['queued', 'launching', 'running'].includes(task.status) || (task.pid && alive(task.pid))) throw new Error(`Pending dashboard work: ${path}`);
     } else if (rel.endsWith('/leases.json') && (await json(path)).length) throw new Error(`Factory admission leases require inspection: ${path}`);
   }
-  await scan('jobs'); await scan('.cc/factory/slots'); await scan('.cc/factory/global'); await scan('.cc/dashboard/tasks');
+  await scan('jobs'); await scan('.cc/factory/slots'); await scan('.cc/factory/global'); await scan('.cc/factory/queues'); await scan('.cc/dashboard/tasks');
 }
 export async function activate(home, id, { validate, switchDashboard } = {}) {
   identifier(id);
@@ -69,11 +73,14 @@ export async function activate(home, id, { validate, switchDashboard } = {}) {
     await validateHome(candidate.destination);
     if (!validate) { const { validateCandidate } = await import('./prepare.mjs'); validate = validateCandidate; }
     await validate(candidate);
-    if (switchDashboard) await switchDashboard(home, candidate.destination);
+    await assertIdle(home); await assertIdle(candidate.destination);
+    const dashboard = switchDashboard ? await switchDashboard(home, candidate.destination) : null;
     const active = { activeHome: candidate.destination, sourceCommit: candidate.commit, previousHome: state.activeHome,
       generations: [...new Set([...state.generations, candidate.destination])], revision: state.revision + 1, activated: now(), candidate: id };
-    await atomic(join(state.root, 'active.json'), active);
+    try { await atomic(join(state.root, 'active.json'), active); }
+    catch (error) { await dashboard?.undo?.(); throw error; }
     await atomic(join(state.root, `activation-${active.revision}.json`), active);
+    await atomic(join(state.root, 'ACTIVE.txt'), `Active home: ${active.activeHome}\nPrevious home: ${active.previousHome}\nUse this home's bundled helper for new sessions.\n`);
     return active;
   });
 }
@@ -83,10 +90,13 @@ export async function rollback(home, { switchDashboard } = {}) {
     if (!state.previousHome) throw new Error('No previous home is recorded.');
     if (await exists(join(state.root, 'prepare.lock'))) throw new Error('An update preparation process must finish first.');
     await assertIdle(home); await assertIdle(state.previousHome); await validateHome(state.previousHome);
-    if (switchDashboard) await switchDashboard(home, state.previousHome);
+    const dashboard = switchDashboard ? await switchDashboard(home, state.previousHome) : null;
     const installation = join(state.previousHome, '.cc/installation.json');
     const active = { ...state, candidates: undefined, root: undefined, activeHome: state.previousHome, previousHome: state.activeHome,
       sourceCommit: await exists(installation) ? (await json(installation)).commit : null, revision: state.revision + 1, activated: now(), candidate: null };
-    await atomic(join(state.root, 'active.json'), active); await atomic(join(state.root, `activation-${active.revision}.json`), active); return active;
+    try { await atomic(join(state.root, 'active.json'), active); }
+    catch (error) { await dashboard?.undo?.(); throw error; }
+    await atomic(join(state.root, `activation-${active.revision}.json`), active);
+    await atomic(join(state.root, 'ACTIVE.txt'), `Active home: ${active.activeHome}\nPrevious home: ${active.previousHome}\nUse this home's bundled helper for new sessions.\n`); return active;
   });
 }
