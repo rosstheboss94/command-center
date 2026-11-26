@@ -8,6 +8,7 @@ import { validateReport, nextStage } from './model.mjs';
 import { providerCommand, providerReport } from './providers.mjs';
 import { deliverJob, syncLabel, commentOnBlock, restartOptions } from './github.mjs';
 import { releaseInputs } from './release-inputs.mjs';
+import { globalSlot, recoverGlobalSlot } from './admission.mjs';
 import { selectSkills } from '../skill-policy.mjs';
 import { validateHome } from '../home.mjs';
 
@@ -26,10 +27,19 @@ export function protectedSourcePath(path, identity) {
 }
 const stageRole = { intake: 'intake', spec: 'spec', plan: 'plan', build: 'builder', approve: 'approver' };
 
+async function repositoryControls(home) {
+  // Admission capacity is a live operational setting, not a frozen role input.
+  // All per-repository configuration and registry contents remain protected.
+  const root = join(home, 'repos');
+  const names = (await readdir(root)).sort().filter(name => !/^factory\.json(?:\.lock|\.[a-f0-9-]{36}\.tmp)?$/.test(name));
+  return hash(JSON.stringify(await Promise.all(names.map(async name => [name, await digestTree(join(root, name))]))));
+}
+
 async function controlDigest(context, job) {
   const common = resolve(job.worktree, await git(['rev-parse', '--git-common-dir'], job.worktree));
   return hash(JSON.stringify(await Promise.all([
-    ...['repos', 'skills', 'references', 'AGENTS.md', '.command-center.json'].map(path => digestTree(join(context.home, path))),
+    repositoryControls(context.home),
+    ...['skills', 'references', 'AGENTS.md', '.command-center.json'].map(path => digestTree(join(context.home, path))),
     ...Object.keys(job.frozen).map(file => digestTree(join(job.directory, file))),
     digestTree(join(common, 'config')), digestTree(join(common, 'hooks')),
   ])));
@@ -268,7 +278,7 @@ export async function runJob(home, repo, id, options = {}) {
   let job = await loadJob(home, repo, id);
   if (['ready', 'rejected', 'blocked'].includes(job.stage)) return job;
   const context = await json(join(job.directory, 'context.json'));
-  return lock(join(job.directory, 'execution.lock'), async () => slot(job, context, async () => {
+  return lock(join(job.directory, 'execution.lock'), async () => globalSlot(home, { ...job, repo }, () => slot(job, context, async () => {
     job = await loadJob(home, repo, id);
     const run = options.run || execute;
     try {
@@ -321,7 +331,7 @@ export async function runJob(home, repo, id, options = {}) {
       catch (error) { job.labelError = error.message; await saveJob(job, `GitHub label sync failed: ${error.message}`); }
     }
     return job;
-  }));
+  })));
 }
 export async function feedback(home, repo, id, text) {
   if (typeof text !== 'string' || !text.trim()) throw new Error('Feedback requires the person’s exact nonempty response.');
@@ -381,6 +391,7 @@ export async function recover(home, repo, id, options = {}) {
   if (!(await exists(path))) throw new Error('No stale execution lock to recover.');
   const owner = await json(path);
   if (alive(owner.pid) || job.attempts.some(attempt => !attempt.finished && attempt.childPid && alive(attempt.childPid))) throw new Error('A recorded owner or child is still live; recovery refused.');
+  await recoverGlobalSlot(home, repo, id);
   const directory = await safe(home, join(home, '.cc/factory/slots', repo));
   if (await exists(directory)) await transaction(join(directory, 'admission.lock'), async () => {
     const leasePath = join(directory, 'leases.json');

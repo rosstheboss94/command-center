@@ -12,7 +12,7 @@ import { addIssue, queueIssues, processQueue, syncLabel } from './factory/github
 import { atomic, exists, safe, lock, git, json, inside, identifier } from './factory/io.mjs';
 import { prepareReleaseInputs } from './factory/release-inputs.mjs';
 
-export const operations = ['config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover', 'release-inputs'];
+export const operations = ['dashboard', 'config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover', 'release-inputs'];
 async function requestFile(path) {
   if (!path) throw new Error('Supply --file with the exact UTF-8 request or feedback.');
   const text = await readFile(path, 'utf8');
@@ -48,6 +48,15 @@ export async function command(operation, values, dependencies = {}) {
   if (!operations.includes(operation)) throw new Error('Unknown factory operation.');
   const { home } = await discoverHome({ home: values.home, cwd: values.cwd || process.cwd() });
   const repo = values.repo;
+  if (operation === 'dashboard') {
+    const { startDashboard } = await import('./dashboard/server.mjs');
+    const port = values.port === undefined ? 4310 : Number(values.port);
+    if (!Number.isSafeInteger(port) || port < 0 || port > 65535) throw new Error('Port must be between 0 and 65535.');
+    const app = await startDashboard({ home, host: values.host, port });
+    console.log(`Command Center dashboard: ${app.url}`);
+    for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { app.close().then(() => process.exit(0)); });
+    return { url: app.url };
+  }
   if (operation === 'status') return status(home, repo, values.job);
   if (operation === 'release-inputs') return prepareReleaseInputs(home, { from: values.from, offline: Boolean(values.offline) });
   if (!repo) throw new Error('--repo is required.');
@@ -122,7 +131,7 @@ export async function command(operation, values, dependencies = {}) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values, positionals } = parseArgs({ allowPositionals: true, options: Object.fromEntries([
-      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree', 'from',
+      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree', 'from', 'port',
     ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }], ['accept-build', { type: 'boolean' }], ['offline', { type: 'boolean' }]])) });
     if (!positionals.length) console.log(JSON.stringify({ operations }));
     else {

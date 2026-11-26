@@ -376,7 +376,7 @@ function section(text, heading) {
   return rest.slice(0, end?.index).trim();
 }
 
-function savedSettings(text) {
+export function savedSettings(text) {
   const values = parseFields(text);
   const validation = section(text, 'Validation');
   const checkPattern = /^- Command — (.+)\r?\n  Working directory — (.+)\r?\n  Source — (.+)/gm;
@@ -410,7 +410,7 @@ function settingsGaps(settings, inspection, facts, checks) {
   return [...new Set(gaps)];
 }
 
-export async function register({ home, cwd = process.cwd(), report: reportPath, details, gitRunner: run = gitRunner }) {
+export async function register({ home, cwd = process.cwd(), report: reportPath, details, updateSettings = false, gitRunner: run = gitRunner }) {
   const { home: homeRoot } = await discoverHome({ home, cwd });
   const absoluteReport = resolve(reportPath);
   if (!contained(join(homeRoot, '.cc/init'), absoluteReport)) throw new Error('Use a preparation report from this home.');
@@ -431,7 +431,17 @@ export async function register({ home, cwd = process.cwd(), report: reportPath, 
     const id = existing?.id || report.id;
     const current = { ...report, ...inspected, id, home: homeRoot,
       facts: await collectFacts(inspected.checkout, inspected.inspection), instructionScopes: instructionScopes(inspected.inspection.instructions) };
-    const settings = existing ? savedSettings(existing.text) : details;
+    const settings = existing && !updateSettings ? savedSettings(existing.text) : details;
+    if (updateSettings && settings?.baseBranch) {
+      singleLine(settings.baseBranch, 'baseBranch');
+      const syntax = await run(['check-ref-format', '--branch', settings.baseBranch], current.checkout);
+      const local = syntax.code === 0 ? await run(['rev-parse', '--verify', `refs/heads/${settings.baseBranch}^{commit}`], current.checkout) : { code: 1 };
+      const remote = local.code === 0 ? local : await run(['rev-parse', '--verify', `refs/remotes/origin/${settings.baseBranch}^{commit}`], current.checkout);
+      if (syntax.code !== 0 || remote.code !== 0) throw new Error('Confirm an existing local or origin base branch.');
+      current.inspection.defaultBranch = settings.baseBranch;
+      current.inspection.defaultBranchSource = 'explicit-user-confirmation';
+      settings.setupGaps = settings.setupGaps.filter(gap => gap !== 'Default branch needs confirmation.');
+    }
     try { await validateDetails(settings, current.inspection, current.checkout); }
     catch (error) { error.code ||= 'CHECK_INVALID'; throw error; }
     const resolvedSkills = validateSkills(settings.skills, catalog).map(({ name, path, digest }) => ({ name, path, digest }));
@@ -446,7 +456,18 @@ export async function register({ home, cwd = process.cwd(), report: reportPath, 
     const links = [...index.matchAll(/\]\(([^)]+)\)/g)].filter(match => match[1] === link || match[1] === `./${link}`);
     if (links.length > 1) throw new Error('Duplicate index links require inspection.');
     let text = existing ? repairMetadata(existing.text, current) : await renderConfig(current, { ...settings, setupGaps });
+    if (existing && updateSettings) {
+      const rendered = await renderConfig(current, { ...settings, setupGaps });
+      text = text.replace(/^- Purpose \u2014 .*$/m, () => `- Purpose — ${settings.purpose || 'unknown'}`);
+      if (settings.baseBranch) text = text.replace(/^- Base branch \u2014 .*$/m, () => `- Base branch — ${settings.baseBranch}`);
+      for (const heading of ['Validation', 'Setup gaps', 'Engineering skills']) {
+        const pattern = new RegExp(`(^## ${heading}\\r?\\n)[\\s\\S]*?(?=^## |$(?![\\s\\S]))`, 'm');
+        if (!pattern.test(text)) throw new Error(`Missing ${heading} section; reconcile Markdown before updating settings.`);
+        text = text.replace(pattern, (_, title) => `${title}\n${section(rendered, heading)}\n\n`);
+      }
+    }
     const changedFields = existing ? Object.keys(factualFields(current)).filter(name => new RegExp(`^- ${name} — .*$`, 'm').exec(existing.text)?.[0] !== new RegExp(`^- ${name} — .*$`, 'm').exec(text)?.[0]) : ['Repository', 'Validation', 'Setup gaps', 'Engineering skills', 'Delivery'];
+    if (existing && updateSettings) changedFields.push('Purpose', 'Validation', 'Setup gaps', 'Engineering skills');
     for (const [name, heading, value] of [
       ['project-facts', 'Project facts', current.facts],
       ['instruction-scope', 'Instruction scope', current.instructionScopes],

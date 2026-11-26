@@ -25,6 +25,9 @@ async function verifySkills(home, folder) {
   await access(join(skills, cc, 'scripts/init.mjs'));
   await access(join(skills, cc, 'scripts/vendor/parsers.mjs'));
   await access(join(skills, cc, 'scripts/vendor/LICENSE.parsers.txt'));
+  await access(join(skills, cc, 'scripts/dashboard/public/index.html'));
+  await access(join(skills, cc, 'scripts/dashboard/public/app.mjs'));
+  await access(join(skills, cc, 'scripts/dashboard/worker.mjs'));
   async function walk(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
@@ -77,6 +80,7 @@ async function assertHelper(helper, project) {
   const operations = JSON.parse(execFileSync(process.execPath, [factory], { encoding: 'utf8' }));
   assert.ok(operations.operations.includes('run'));
   assert.ok(operations.operations.includes('release-inputs'));
+  assert.ok(operations.operations.includes('dashboard'));
   const pins = JSON.parse(await readFile(resolve(dirname(helper), '../assets/release-baselines/pins.json'), 'utf8'));
   assert.deepEqual(pins.releases.map(item => item.version), ['0.3.0', '0.4.0']);
   for (const pin of pins.releases) await access(resolve(dirname(helper), `../assets/release-baselines/${pin.version}.json`));
@@ -332,6 +336,8 @@ test('packed npm executable creates a complete home offline', async t => {
     cwd: isolated, encoding: 'utf8', timeout: 120000, env: { ...process.env, npm_config_cache: join(root, 'npm-cache') },
   });
   const packed = JSON.parse(npm('pack', '--json', '--pack-destination', root));
+  const help = npm('exec', '--offline', '--yes', `--package=${join(root, packed[0].filename)}`, '--', 'command-center-dashboard', '--help');
+  assert.match(help, /Usage: command-center-dashboard/);
   const tarball = join(root, packed[0].filename);
   const shipped = packed[0].files.map(file => file.path);
   assert.ok(shipped.includes('skills/ready/cc/scripts/skill-policy.mjs'));
