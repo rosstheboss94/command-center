@@ -121,10 +121,11 @@ export async function startDashboard({ home, host, port = 4310, schedule = true,
         } else {
           if (['resume', 'feedback'].includes(action)) {
             identifier(input.job); const job = await loadJob(home, repo.id, input.job);
-            if (job.legacy || job.stage !== 'blocked') throw error('Only a blocked enforced job can resume.');
+            if (job.legacy || !['blocked', 'failed'].includes(job.stage)) throw error('Only a blocked or failed job can resume.');
+            const config = (await json(join(job.directory, 'context.json'))).config;
             if (board.cards.some(card => card.repo === repo.id && card.job?.id === job.id && card.lane === 'done')) throw error('This work is already completed on GitHub.');
-            if (job.interruptedStage === 'build' && job.round >= (await json(join(job.directory, 'context.json'))).config.maxRounds) throw error('Job round limit exhausted; create a successor or finish directly.');
-            if (action === 'resume' && job.requiresFeedback) throw error('This job requires feedback before resuming.');
+            if (config.blocking === true && job.interruptedStage === 'build' && job.round >= config.maxRounds) throw error('Job round limit exhausted; create a successor or finish directly.');
+            if (config.blocking === true && action === 'resume' && job.requiresFeedback) throw error('This job requires feedback before resuming.');
           }
           operations.push(await enqueue(home, { action, repo: repo.id, ...(input.job ? { job: input.job } : {}), ...(text ? { text } : {}) }, `${repo.id}:${input.job || hash(text)}:${action === 'add' ? 'add' : 'job'}`));
         }

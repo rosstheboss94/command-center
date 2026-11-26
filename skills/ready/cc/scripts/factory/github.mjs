@@ -53,11 +53,11 @@ export async function addIssue(context, text, { run = execute } = {}) {
 export async function syncLabel(context, job, { run = execute } = {}) {
   if (!job.issue) return;
   const repo = repository(context);
-  const label = job.stage === 'blocked' ? 'cc:blocked' : job.stage === 'ready' ? 'cc:ready' : job.stage === 'rejected' ? 'cc:rejected' : 'cc:running';
+  const label = job.stage === 'failed' ? 'cc:failed' : job.stage === 'blocked' ? 'cc:blocked' : job.stage === 'ready' ? 'cc:ready' : job.stage === 'rejected' ? 'cc:rejected' : 'cc:running';
   const current = JSON.parse(await gh(context, ['issue', 'view', String(job.issue.number), '--repo', repo, '--json', 'labels'], run));
   await ensureLabel(context, label, run);
   await gh(context, ['issue', 'edit', String(job.issue.number), '--repo', repo, '--add-label', label], run);
-  for (const other of ['cc:running', 'cc:blocked', 'cc:ready', 'cc:rejected']) {
+  for (const other of ['cc:running', 'cc:blocked', 'cc:ready', 'cc:rejected', 'cc:failed']) {
     if (other !== label && current.labels.some(item => item.name === other)) await gh(context, ['issue', 'edit', String(job.issue.number), '--repo', repo, '--remove-label', other], run);
   }
 }
@@ -76,7 +76,8 @@ export async function deliverJob(job, context, { run = execute } = {}) {
   await git(['push', 'origin', `${job.commit}:refs/heads/${job.branch}`], job.worktree, run);
   const request = await readFile(join(job.directory, 'request.md'), 'utf8');
   const bodyFile = join(job.directory, 'pr-body.md');
-  const body = `${marker}\n${request}\n\n${job.issue ? `Closes #${job.issue.number}\n\n` : ''}## Specification\n\n${job.reports.spec?.artifact || ''}\n\n## Validation\n\nCommit: ${job.commit}\n\n${JSON.stringify(job.checks, null, 2)}\n\nReviews: ${job.requiredReviews.join(', ')}\n`;
+  const policy = context.config.blocking === true ? 'Enforced checks and approval.' : '**Workflow blocking is disabled. Checks or role verdicts may be failed, missing, or negative. Ready means available for human review, not that validation passed.**';
+  const body = `${marker}\n${request}\n\n${job.issue ? `Closes #${job.issue.number}\n\n` : ''}## Delivery policy\n\n${policy}\n\n${JSON.stringify(job.workflowWarnings || [], null, 2)}\n\n## Specification\n\n${job.reports.spec?.artifact || ''}\n\n## Validation\n\nCommit: ${job.commit}\n\n${JSON.stringify(job.checks, null, 2)}\n\nReviews: ${job.requiredReviews.join(', ')}\n`;
   await atomic(bodyFile, body);
   if (!matches.length) {
     await gh(context, ['pr', 'create', '--repo', repo, '--head', job.branch, '--base', context.baseBranch, '--draft', '--title', request.trim().split(/\r?\n/)[0].slice(0, 120), '--body-file', bodyFile], run);

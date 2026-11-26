@@ -41,7 +41,7 @@ export async function executeTask(home, id, { invoke = command, contextFor = loa
         catch (cause) { const raced = (await listJobs(home, repo)).find(item => item.issue?.number === issue.number); if (raced) return raced; throw cause; }
       });
       task.job = created.id; await atomic(path, task);
-      if (['blocked', 'rejected', 'ready'].includes(created.stage)) throw new Error('This issue already has a saved job. Use its supported recovery actions.');
+      if (['blocked', 'failed', 'rejected', 'ready'].includes(created.stage)) throw new Error('This issue already has a saved job. Use its supported recovery actions.');
       task.result = await run(home, repo, created.id);
     } else if (action === 'feedback') {
       if (!task.feedbackRecorded) {

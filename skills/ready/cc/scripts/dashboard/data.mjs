@@ -69,6 +69,7 @@ export function createBoardReader(home, { fetchGithub = githubSnapshot } = {}) {
         if (!job.legacy) {
           const context = JSON.parse(await readFile(join(job.directory, 'context.json'), 'utf8'));
           job.maxRounds = context.config.maxRounds;
+          job.blocking = context.config.blocking === true;
         }
       }
       cards.push(...boardCards(repo.id, jobs, source.issues, source.prs));

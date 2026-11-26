@@ -5,6 +5,8 @@ description: Initialize and operate Command Center's enforced software factory. 
 
 # Command Center
 
+Workflow blocking defaults off (`blocking: false`). Use the updated helper to record advisory findings and proceed toward a PR, without claiming failed or absent checks passed. Actual execution errors use Failed and remain retryable. Explicit `blocking: true` restores strict gates for future jobs. See [workflow blocking policy](references/jobs.md#workflow-blocking-defaults-off); merge/release authority and repository/process ownership protections remain unchanged.
+
 Interpret `cc` operations in chat using the host agent's normal tools. For init, the bundled helper discovers and validates the home marker from its location and the invocation directory. Use the returned home path for subsequent operations. If it reports ambiguous or missing homes, resolve that choice before proceeding. For copied plugins or legacy unmarked homes, select an explicit valid home through `--home`. Product changes belong in the target checkout's Git history.
 
 | Request | Action |

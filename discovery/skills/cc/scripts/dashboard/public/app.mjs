@@ -40,7 +40,7 @@ function renderCard(card) {
   const element = button('', () => details(card), 'card'); element.setAttribute('aria-label', `${card.title}, ${data.laneNames[card.lane] || card.lane}, ${repoName(card.repo)}`);
   element.dataset.focus = `card:${card.key}`;
   const top = node('div', 'card-top'); top.append(node('span', 'repo-pill', selected === 'all' ? repoName(card.repo).split('/').at(-1) : card.job ? 'FACTORY JOB' : 'GITHUB ISSUE'), node('span', '', card.issue ? `#${card.issue.number}` : card.job?.id?.slice(-8)));
-  const tag = node('span', `tag${card.lane === 'blocked' ? ' blocked' : ''}`, card.lane === 'blocked' ? `Blocked · ${card.interruptedStage || 'legacy'}` : card.pr ? `PR #${card.pr.number}` : data.laneNames[card.lane]);
+  const tag = node('span', `tag${['blocked', 'failed'].includes(card.lane) ? ' blocked' : ''}`, ['blocked', 'failed'].includes(card.lane) ? `${data.laneNames[card.lane]} · ${card.interruptedStage || 'legacy'}` : card.job?.workflowWarnings?.length ? `${card.job.workflowWarnings.length} warning(s)` : card.pr ? `PR #${card.pr.number}` : data.laneNames[card.lane]);
   const footer = node('div', 'card-footer'); footer.append(node('span', '', age(card.updated)), node('span', '', card.job ? `${card.job.round || 0} round${card.job.round === 1 ? '' : 's'} · ↗` : 'Issue · ↗'));
   element.append(top, node('h3', '', card.title), tag, footer); return element;
 }
@@ -83,16 +83,21 @@ async function details(card) {
   const content = node('div'), meta = node('div', 'detail-meta');
   meta.append(node('span', 'tag', repoName(card.repo)), node('span', 'tag', data.laneNames[card.lane] || card.lane));
   if (card.issue) meta.append(link(`Issue #${card.issue.number} ↗`, card.issue.html_url)); if (card.pr || card.job?.pr) meta.append(link('Pull request ↗', card.pr?.url || card.job.pr.url)); content.append(meta);
-  if (card.blocker) content.append(section(card.lane === 'done' ? 'Original factory record' : 'Blocker', node('p', 'error-text', card.blocker)));
+  if (card.blocker) content.append(section(card.lane === 'done' ? 'Original factory record' : card.lane === 'failed' ? 'Execution failure or previous stop' : 'Blocker', node('p', 'error-text', card.blocker)));
   for (const warning of card.job?.warnings || []) content.append(node('p', 'notice', warning));
+  if (card.job?.blocking === false) content.append(node('p', '', 'Workflow gates are off. Recorded failures and warnings do not imply checks passed.'));
+  if (card.job?.workflowWarnings?.length) {
+    const warnings = node('ul'); for (const warning of card.job.workflowWarnings) warnings.append(node('li', '', `${warning.stage}: ${warning.message}`));
+    content.append(section('Workflow warnings', warnings));
+  }
   const actions = node('div', 'detail-actions');
   const pending = data.operations.some(task => task.input.repo === card.repo && (task.input.job === card.job?.id || task.input.issue?.number === card.issue?.number) && ['queued', 'launching', 'running'].includes(task.status));
   if (!card.job && card.lane === 'queued') actions.append(button('▷ Start work', () => action({ action: 'start', repo: card.repo, issue: card.issue.number }), 'primary'));
-  if (card.job?.stage === 'blocked' && card.lane !== 'done' && !card.job.legacy) {
-    const exhausted = card.job.interruptedStage === 'build' && card.job.round >= (card.job.maxRounds || 3);
+  if (['blocked', 'failed'].includes(card.job?.stage) && card.lane !== 'done' && !card.job.legacy) {
+    const exhausted = card.job.blocking === true && card.job.interruptedStage === 'build' && card.job.round >= (card.job.maxRounds || 3);
     if (exhausted) content.append(node('p', 'notice', 'Round limit reached. Start a successor job through chat or finish this work directly; this job cannot bypass its saved limit.'));
     else {
-      if (!card.job.requiresFeedback) actions.append(button('Resume', () => action({ action: 'resume', repo: card.repo, job: card.job.id }), 'primary'));
+      if (!card.job.requiresFeedback || card.job.blocking === false) actions.append(button(card.job.stage === 'failed' ? 'Retry' : 'Resume', () => action({ action: 'resume', repo: card.repo, job: card.job.id }), 'primary'));
       actions.append(button('Give feedback', () => feedbackForm(card)));
     }
   }
@@ -130,6 +135,8 @@ async function repositorySettings(repo, root) {
   root.append(node('p', '', 'Assignments and checks apply to future jobs. Existing jobs keep their frozen configuration.'));
   if (current.conflict) root.append(node('p', 'notice', current.conflict));
   const effective = current.config || {}, numbers = {}, form = node('form');
+  const blocking = input('', 'checkbox'); blocking.checked = current.settings.blocking === true;
+  form.append(field('Enforce workflow blocking gates (off by default)', blocking), node('p', '', 'With gates off, checks and role verdicts are advisory. Failures stay in the evidence; Git/authentication/delivery errors still fail visibly.'));
   const row = node('div', 'form-row'); for (const [key, label, fallback] of [['concurrency', 'Repo job limit', 3], ['maxRounds', 'Maximum rounds', 3], ['checkTimeoutSeconds', 'Check timeout (seconds)', 1800]]) { numbers[key] = input(effective[key] || current.settings[key] || fallback, 'number'); row.append(field(label, numbers[key])); } form.append(row);
   const profiles = new Map();
   for (const role of ['default', 'intake', 'spec', 'plan', 'builder', 'review-code', 'review-security', 'review-ui', 'review-ux', 'approver']) {
@@ -144,7 +151,7 @@ async function repositorySettings(repo, root) {
   const reconcile = input('', 'checkbox'); if (current.conflict) form.append(field('I reviewed the Markdown and want to reconcile these factory settings', reconcile));
   const submit = node('button', 'primary', 'Save factory settings'); form.append(submit); form.onsubmit = async event => {
     event.preventDefault(); submit.disabled = true;
-    try { const settings = { ...current.settings, roles: {} }; for (const [key, element] of Object.entries(numbers)) settings[key] = Number(element.value);
+    try { const settings = { ...current.settings, blocking: blocking.checked, roles: {} }; for (const [key, element] of Object.entries(numbers)) settings[key] = Number(element.value);
       for (const [role, values] of profiles) {
         // Keep executable overrides unless the selected provider actually changes.
         const profile = {};

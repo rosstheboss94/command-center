@@ -1,5 +1,5 @@
-export const lanes = ['queued', 'intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver', 'ready', 'done', 'blocked'];
-export const laneNames = { queued: 'Queued', intake: 'Intake', spec: 'Spec', plan: 'Plan', build: 'Build', verify: 'Verify', review: 'Review', approve: 'Approve', deliver: 'Deliver', ready: 'Ready for merge', done: 'Done', blocked: 'Blocked' };
+export const lanes = ['queued', 'intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver', 'ready', 'done', 'failed', 'blocked'];
+export const laneNames = { queued: 'Queued', intake: 'Intake', spec: 'Spec', plan: 'Plan', build: 'Build', verify: 'Verify', review: 'Review', approve: 'Approve', deliver: 'Deliver', ready: 'Ready for merge', done: 'Done', blocked: 'Blocked', failed: 'Failed' };
 
 export function boardCards(repo, jobs, issues, prs) {
   const seen = new Set();
@@ -10,7 +10,7 @@ export function boardCards(repo, jobs, issues, prs) {
     const completed = pr?.state === 'MERGED' || issue?.state === 'closed';
     const deliveryConflict = !completed && job?.stage === 'ready' && pr && (pr.state === 'CLOSED' || pr.headRefOid !== job.commit);
     const labels = (issue?.labels || []).map(item => typeof item === 'string' ? item : item.name);
-    const lane = completed ? 'done' : deliveryConflict || job?.legacy ? 'blocked' : job?.stage || (labels.includes('cc:rejected') ? 'rejected' : labels.includes('cc:blocked') || labels.includes('cc:running') ? 'blocked' : labels.includes('cc:ready') ? 'ready' : 'queued');
+    const lane = completed ? 'done' : deliveryConflict || job?.legacy ? 'blocked' : job?.stage === 'blocked' && job.blocking === false ? 'failed' : job?.stage || (labels.includes('cc:failed') ? 'failed' : labels.includes('cc:rejected') ? 'rejected' : labels.includes('cc:blocked') || labels.includes('cc:running') ? 'blocked' : labels.includes('cc:ready') ? 'ready' : 'queued');
     return { key: `${repo}:${issue ? `issue-${issue.number}` : job.id}`, repo, title: issue?.title || job?.title || job?.request?.split('\n')[0] || job?.id,
       lane, updated: completed ? pr?.mergedAt || issue?.closed_at : job?.updated || issue?.updated_at,
       completedAt: completed ? pr?.mergedAt || issue?.closed_at : null, issue, job, pr,

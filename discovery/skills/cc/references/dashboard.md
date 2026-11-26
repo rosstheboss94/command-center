@@ -1,5 +1,7 @@
 # Local Kanban dashboard
 
+Workflow blocking defaults off. Checks and role verdicts remain visible as advisory evidence and warnings, including failed or missing results. The Settings checkbox can explicitly opt future jobs into blocking. Hard execution/delivery errors appear in Failed with Retry, without a feedback or round-limit gate in advisory mode. PRs disclose this policy; ready does not mean verification passed. Historical strict jobs and legacy records may still appear in Blocked. See [workflow policy](jobs.md#workflow-blocking-defaults-off).
+
 Ask `cc dashboard` in a home, or run:
 
 ```sh

@@ -132,6 +132,7 @@ async function promptFor(job, context, role) {
   const diff = await git(['diff', job.baseCommit, '--'], job.worktree);
   return `${guide}\n\nROLE: ${role}\nCOMMIT: ${job.commit}\nWORKTREE: ${job.worktree}\nBASE: ${job.baseCommit}\nREPOSITORY_IDENTITY: ${context.identity}\n` +
     `Return only one JSON report. The commit field must equal ${job.commit}. Do not commit, push, merge, publish, spawn subagents, or edit factory controls. ` +
+    `Workflow blocking gates: ${context.config.blocking === true ? 'enabled' : 'disabled; report actual verdicts and findings honestly, including failures. The helper records advisory warnings and proceeds where execution is possible.'}\n` +
     `${role === 'builder' ? `Edit only this worktree; report blockers if permissions prevent work. ${context.identity === sourceIdentity ? 'This is the verified Command Center source repository: its source files in this worktree may change, but the live home, frozen records, and Git controls remain protected.' : 'This is not the Command Center source repository; factory control paths remain protected.'}` : 'Read only. Return any requested artifact as the report artifact string; do not write files.'}\n` +
     `Instructions (each scope governs only its subtree):\n${JSON.stringify(context.instructions)}\n` +
     `Relevant shared skill catalog: ${JSON.stringify(context.skills)}\n` +
@@ -193,10 +194,14 @@ async function buildCommit(job, context, run) {
   await assertWorktree(job, context, run);
   const paths = await statusPaths(job.worktree, run);
   if (paths.some(path => protectedSourcePath(path, context.identity))) throw new Error('Builder changed protected factory controls.');
-  if (job.pendingBuild && job.pendingBuild.digest !== await buildFingerprint(job, run)) throw new Error('Worktree changed after the completed builder report; reconcile edits before accepting this build.');
+  if (job.pendingBuild && job.pendingBuild.digest !== await buildFingerprint(job, run)) {
+    if (context.config.blocking === true) throw new Error('Worktree changed after the completed builder report; reconcile edits before accepting this build.');
+    await warning(job, 'Preserved worktree differs from the earlier builder fingerprint. The old report is retained but is not current verification.');
+  }
   if (paths.length) {
     await git(['add', '--', ...paths], job.worktree, run);
-    await git(['diff', '--cached', '--check'], job.worktree, run);
+    try { await git(['diff', '--cached', '--check'], job.worktree, run); }
+    catch (cause) { if (context.config.blocking === true) throw cause; await warning(job, `Whitespace check: ${cause.message}`); }
     await git(['commit', '-m', `feat: implement factory job ${job.id}`], job.worktree, run);
   }
   job.commit = await git(['rev-parse', 'HEAD'], job.worktree, run);
@@ -222,13 +227,23 @@ async function verify(job, context, options) {
       await logProcess(job, `check: ${check.command}`, { file, args }, { cwd, timeoutSeconds: context.config.checkTimeoutSeconds }, run);
       results.push({ command: check.command, passed: true });
     } catch (error) { results.push({ command: check.command, passed: false, error: error.message }); }
-    if (await controlDigest(context, job) !== controls || await git(['rev-parse', 'HEAD'], job.worktree, run) !== head || await git(['status', '--porcelain=v1'], job.worktree, run)) throw new Error('Checks modified tracked files, HEAD, or factory controls.');
+    if (await controlDigest(context, job) !== controls || await git(['rev-parse', 'HEAD'], job.worktree, run) !== head) throw new Error('Checks modified HEAD or factory controls.');
+    if (await git(['status', '--porcelain=v1'], job.worktree, run)) {
+      if (context.config.blocking === true) throw new Error('Checks modified tracked files, HEAD, or factory controls.');
+      results[results.length - 1] = { ...results.at(-1), passed: false, error: 'Check changed tracked source; these results do not verify the new commit.' };
+      await warning(job, 'A check changed tracked source. Preserving its output in a new commit without claiming passing verification.');
+      await buildCommit(job, context, run);
+      job.checks = { commit: head, passed: false, stale: true, results, at: now() };
+      await saveJob(job, 'Retained failed check evidence for its original commit after source changes.');
+      return false;
+    }
   }
   job.checks = { commit: head, passed: results.every(item => item.passed), results, at: now() };
   await saveJob(job, job.checks.passed ? 'Frozen checks passed.' : 'Frozen checks failed.');
   return job.checks.passed;
 }
-function deliveryGate(job) {
+function deliveryGate(job, context) {
+  if (context.config.blocking !== true) return;
   const reviewsMissing = reviewsEnabled && job.requiredReviews.some(name => job.reports[name]?.verdict !== 'PASS' || job.reports[name]?.commit !== job.commit);
   if (!job.checks?.passed || job.checks.commit !== job.commit || reviewsMissing
     || job.reports.approver?.verdict !== 'APPROVE' || job.reports.approver?.commit !== job.commit) throw new Error('Delivery requires passing checks, all reviews, and approval for the exact commit.');
@@ -239,9 +254,9 @@ async function block(job, error, context, run) {
     job.interruptedStage = job.stage;
     job.restartChoice = null;
   }
-  job.stage = 'blocked'; job.blocker = error.message;
-  job.requiresFeedback = Boolean(error.requiresFeedback);
-  await saveJob(job, `Blocked: ${error.message}`);
+  job.stage = context.config.blocking === true ? 'blocked' : 'failed'; job.blocker = error.message;
+  job.requiresFeedback = context.config.blocking === true && Boolean(error.requiresFeedback);
+  await saveJob(job, `${job.stage === 'blocked' ? 'Blocked' : 'Failed operation'}: ${error.message}`);
   if (!blockCommentsEnabled || !entering || !job.issue) return;
   try {
     await commentOnBlock(context, job, { run });
@@ -250,6 +265,23 @@ async function block(job, error, context, run) {
   } catch (commentError) {
     job.commentError = commentError.message;
     await saveJob(job, `GitHub block comment failed: ${commentError.message}`);
+  }
+}
+
+async function warning(job, message) {
+  job.workflowWarnings ||= [];
+  job.workflowWarnings.push({ stage: job.stage, commit: job.commit, at: now(), message });
+  await saveJob(job, `Advisory warning: ${message}`);
+}
+async function advisoryRole(job, context, name, options) {
+  const run = options.run || execute, controls = await controlDigest(context, job);
+  try { return await role(job, context, name, options); }
+  catch (cause) {
+    // Workflow failures are advisory. Ownership and accurate commit/evidence identity are not.
+    if (await controlDigest(context, job) !== controls || await git(['rev-parse', 'HEAD'], job.worktree, run) !== job.commit) throw new Error(`Role integrity failure: ${cause.message}`);
+    await assertWorktree(job, context, run);
+    if (name !== 'builder' && await git(['status', '--porcelain=v1', '--untracked-files=all'], job.worktree, run)) throw new Error(`Read-only role changed the worktree: ${cause.message}`);
+    await warning(job, `${name}: ${cause.message}`); return null;
   }
 }
 
@@ -276,32 +308,49 @@ async function slot(job, context, action) {
 export async function runJob(home, repo, id, options = {}) {
   await validateHome(home);
   let job = await loadJob(home, repo, id);
-  if (['ready', 'rejected', 'blocked'].includes(job.stage)) return job;
+  if (['ready', 'rejected', 'blocked', 'failed'].includes(job.stage)) return job;
   const context = await json(join(job.directory, 'context.json'));
   return lock(join(job.directory, 'execution.lock'), async () => globalSlot(home, { ...job, repo }, () => slot(job, context, async () => {
     job = await loadJob(home, repo, id);
+    job.blocking = context.config.blocking === true;
     const run = options.run || execute;
     try {
       await prepareWorktree(job, context, run);
-      if (await git(['status', '--porcelain=v1', '--untracked-files=all'], job.worktree, run)) throw new Error('Unexpected worktree edits require reconciliation.');
-      while (!['ready', 'rejected', 'blocked'].includes(job.stage)) {
+      if (await git(['status', '--porcelain=v1', '--untracked-files=all'], job.worktree, run)) {
+        if (job.blocking) throw new Error('Unexpected worktree edits require reconciliation.');
+        await warning(job, 'Checkpointing preserved changes in the owned job worktree before continuing.');
+        await buildCommit(job, context, run);
+      }
+      while (!['ready', 'rejected', 'blocked', 'failed'].includes(job.stage)) {
         if (job.issue && !options.skipLabels) {
           try { await syncLabel(context, job, { run }); }
           catch (error) { job.labelError = error.message; await saveJob(job, `GitHub label sync failed: ${error.message}`); }
         }
         if (stageRole[job.stage]) {
           if (job.stage === 'build') {
-            if (job.round >= context.config.maxRounds) throw new Error('Build/check/review round budget exhausted.');
+            if (job.round >= context.config.maxRounds) {
+              if (job.blocking) throw new Error('Build/check/review round budget exhausted.');
+              await warning(job, 'Build round limit reached; continuing with the preserved worktree without another build attempt.');
+              await buildCommit(job, context, run); job.stage = 'verify'; await saveJob(job, 'Continued to verification without resetting the round budget.'); continue;
+            }
             job.round++; await saveJob(job, `Started build round ${job.round}.`);
           }
           const stage = job.stage;
-          const report = await role(job, context, stageRole[stage], options);
-          if (stage === 'build' && report.verdict === 'READY') await buildCommit(job, context, run);
-          const next = nextStage(stage, report.verdict);
-          if (next === 'blocked') throw Object.assign(new Error(report.findings.join('\n') || `${stage} requires human input.`), { requiresFeedback: true });
-          job.stage = next;
+          const report = job.blocking ? await role(job, context, stageRole[stage], options) : await advisoryRole(job, context, stageRole[stage], options);
+          if (stage === 'build' && (!job.blocking || report.verdict === 'READY')) await buildCommit(job, context, run);
+          if (!job.blocking) {
+            const positive = stage === 'intake' ? 'ACCEPT' : stage === 'approve' ? 'APPROVE' : 'READY';
+            if (report && report.verdict !== positive) await warning(job, `${stage} returned ${report.verdict}: ${report.findings.join('\n') || 'See saved report.'}`);
+            job.stage = { intake: 'spec', spec: 'plan', plan: 'build', build: 'verify', approve: 'deliver' }[stage];
+          } else {
+            const next = nextStage(stage, report.verdict);
+            if (next === 'blocked') throw Object.assign(new Error(report.findings.join('\n') || `${stage} requires human input.`), { requiresFeedback: true });
+            job.stage = next;
+          }
         } else if (job.stage === 'verify') {
-          job.stage = await verify(job, context, options) ? 'review' : 'build';
+          const passed = await verify(job, context, options);
+          if (!passed && !job.blocking) await warning(job, 'Frozen checks failed. Results remain failed; continuing without a passing-check gate.');
+          job.stage = passed || !job.blocking ? 'review' : 'build';
         } else if (job.stage === 'review') {
           if (!reviewsEnabled) {
             job.requiredReviews = [];
@@ -317,7 +366,7 @@ export async function runJob(home, repo, id, options = {}) {
         } else if (job.stage === 'deliver') {
           await assertWorktree(job, context, run);
           if (await git(['rev-parse', 'HEAD'], job.worktree, run) !== job.commit || await git(['status', '--porcelain=v1'], job.worktree, run)) throw new Error('Delivery commit changed.');
-          deliveryGate(job);
+          deliveryGate(job, context);
           if (!context.deliveryAuthorized) throw new Error('Central configuration does not authorize branch/PR delivery.');
           const pr = await (options.deliver || deliverJob)(job, context, { run });
           if (pr.head !== job.commit) throw new Error('PR head does not match the checked and reviewed commit.');
@@ -337,7 +386,7 @@ export async function feedback(home, repo, id, text) {
   if (typeof text !== 'string' || !text.trim()) throw new Error('Feedback requires the person’s exact nonempty response.');
   const job = await loadJob(home, repo, id);
   return lock(join(job.directory, 'execution.lock'), async () => {
-    if (job.stage !== 'blocked') throw new Error('Feedback recovery requires a blocked job.');
+    if (!['blocked', 'failed'].includes(job.stage)) throw new Error('Feedback recovery requires a blocked or failed job.');
     if (!['intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver'].includes(job.interruptedStage)) throw new Error('Invalid interrupted recovery role/stage.');
     const letter = String(text).trim();
     const choice = ['a', 'b', 'c'].includes(letter) ? letter : null;
@@ -357,6 +406,7 @@ export async function feedback(home, repo, id, text) {
 export async function resumeJob(home, repo, id, options = {}) {
   await validateHome(home);
   const job = await loadJob(home, repo, id);
+  const blocking = (await json(join(job.directory, 'context.json'))).config.blocking === true;
   if (options.acceptBuild) {
     await lock(join(job.directory, 'execution.lock'), async () => {
       if (job.stage !== 'blocked' || job.interruptedStage !== 'build' || job.reports.builder?.verdict !== 'READY') throw new Error('Accept-build recovery requires a blocked job with a completed READY builder report.');
@@ -375,11 +425,11 @@ export async function resumeJob(home, repo, id, options = {}) {
       await saveJob(job, 'Recovered completed build; all checks, reviews, and approval are still required.');
     });
   }
-  if (job.stage === 'blocked' && !job.requiresFeedback) {
+  if ((job.stage === 'blocked' && (!job.requiresFeedback || !blocking)) || (job.stage === 'failed' && !blocking)) {
     if (!['intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver'].includes(job.interruptedStage)) throw new Error('Invalid interrupted recovery role/stage. Preserve the job and reconcile its saved state through supported recovery.');
     await lock(join(job.directory, 'execution.lock'), async () => {
       job.skillRecovery = true;
-      job.stage = job.interruptedStage; job.blocker = null; job.restartChoice = null;
+      job.stage = job.interruptedStage; job.blocker = null; job.restartChoice = null; job.requiresFeedback = false;
       await saveJob(job, 'Explicit resume requested after an operational failure. No restart option was chosen.');
     });
   }

@@ -73,7 +73,7 @@ export async function recoverTask(home, id) {
     if ((job.attempts || []).some(attempt => !attempt.finished && attempt.childPid && alive(attempt.childPid))) throw new Error('A recorded job child is still live.');
     if (await exists(join(job.directory, 'execution.lock'))) job = await recover(home, task.input.repo, jobId);
     if (await exists(taskLock)) await unlink(taskLock);
-    if (['blocked', 'ready', 'rejected'].includes(job.stage)) { task.status = 'finished'; task.result = job; task.error = null; }
+    if (['blocked', 'failed', 'ready', 'rejected'].includes(job.stage)) { task.status = 'finished'; task.result = job; task.error = null; }
     else { task.status = 'queued'; task.error = null; task.retryAt = null; }
     await atomic(path, task); return task;
   });
