@@ -1,5 +1,11 @@
 # Software Factory Command Center
 
+## Local dashboard
+
+Workflow gates default to non-blocking: role findings, failed checks, negative approval, and round limits produce recorded warnings while the helper proceeds toward PR delivery. PRs disclose failed or missing evidence. Actual execution failures appear as Failed and can be retried. Settings can explicitly re-enable strict blocking for future jobs; merging and publishing remain separate decisions.
+
+Ask `cc dashboard`, or run `command-center-dashboard --home <home> --host codex` from this package. Open the printed localhost URL for a dark Kanban board spanning registered repositories. The sidebar filters work by repo; Settings manages registration and future-job configuration. Start and Run queue are explicit actions. The shared home limit defaults to three running jobs, including CLI starts. See [dashboard operations and recovery](skills/ready/cc/references/dashboard.md).
+
 This is a software factory home repo with a bundled Node.js runtime. The user-facing `cc` skill is `skills/ready/cc/SKILL.md`. Start your coding agent here and invoke `cc` to register projects or coordinate software work using the shared agent skills.
 
 See [workflow ownership, role selection, host discovery, and migration](skills/ready/cc/references/workflow-skills.md) for the complete ownership map and compatibility contract. Canonical skills use `skills/<workflow-step>/<skill>`; host discovery copies remain flat by skill name. Selection controls the helper's advertised catalog, not globally installed skills.

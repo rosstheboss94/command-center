@@ -1,5 +1,13 @@
 # Jobs and recovery
 
+## Workflow blocking defaults off
+
+Factory settings now default to `"blocking": false`. Intake questions/rejection, missing or malformed role output, provider failures, failed checks, negative approval, whitespace findings, and an exhausted build-round budget are advisory. The helper retains actual reports, raw attempts, failed check results, and `workflowWarnings`; it does not invent passing evidence. Jobs continue through the remaining stages and attempt PR delivery. An exhausted build budget skips another builder call and uses the preserved owned worktree without increasing the limit. Approval may run and record its verdict, but does not hold delivery.
+
+PR descriptions explicitly disclose advisory delivery and list warnings and actual checks. Ready means a PR is available for human review, not that checks or approval passed. Actual execution failures—invalid ownership, modified controls, unavailable Git/GitHub authentication, push failures, or an inability to create/verify a PR—end as `failed` with `requiresFeedback: false`, rather than parking in Blocked. Resume retries its recorded interrupted stage. Existing blocked records with no explicit strict policy can resume without a feedback or budget gate; their old evidence remains unchanged.
+
+Set `"blocking": true` explicitly to opt into the stricter rules described below. New jobs freeze this setting; existing jobs with an explicit true retain it. Older snapshots without the field use the new advisory default when resumed with the updated helper. This policy never authorizes merge, release, another repository's worktree, live process lock removal, provider substitution, or fabrication. Concurrency remains enforced as queue admission. Use the matching updated helper to inspect the new failed state; older installed runtimes are not automatically overwritten.
+
 Command Center owns this workflow. Use its bundled Node helper; do not invoke a separately installed `factory` skill, invent passing evidence, or edit job state directly. Product changes belong in the job worktree. Central settings and evidence stay in the resolved home.
 
 ## User operations

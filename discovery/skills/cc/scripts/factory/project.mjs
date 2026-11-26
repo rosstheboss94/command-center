@@ -39,12 +39,12 @@ export async function inspectConfig(home, repo, host) {
   if (saved && (saved.schemaVersion !== 1 || saved.markdownHash !== hash(project.markdown))) throw new Error('Central Markdown settings changed; reconcile them with cc config <repo> factory before starting work.');
   return { ...project, config: effectiveConfig(saved?.settings || {}, host) };
 }
-export async function saveConfig(home, repo, settings, host) {
+export async function saveConfig(home, repo, settings, host, { replace = false } = {}) {
   const project = await projectRecord(home, repo);
   effectiveConfig(settings, host);
   const path = await safe(home, join(home, 'repos', repo, 'factory.json'));
   return lock(`${path}.lock`, async () => {
-    const prior = await exists(path) ? (await json(path)).settings : {};
+    const prior = !replace && await exists(path) ? (await json(path)).settings : {};
     const mergeProfile = (base = {}, patch = {}) => ({ ...base, ...(patch.runner && patch.runner !== base.runner ? { model: null, executable: undefined } : {}), ...patch });
     const merged = { ...prior, ...settings, default: mergeProfile(prior.default, settings.default), roles: { ...prior.roles } };
     for (const [role, patch] of Object.entries(settings.roles || {})) merged.roles[role] = mergeProfile(prior.roles?.[role], patch);

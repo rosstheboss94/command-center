@@ -5,12 +5,15 @@ description: Initialize and operate Command Center's enforced software factory. 
 
 # Command Center
 
+Workflow blocking defaults off (`blocking: false`). Use the updated helper to record advisory findings and proceed toward a PR, without claiming failed or absent checks passed. Actual execution errors use Failed and remain retryable. Explicit `blocking: true` restores strict gates for future jobs. See [workflow blocking policy](references/jobs.md#workflow-blocking-defaults-off); merge/release authority and repository/process ownership protections remain unchanged.
+
 Interpret `cc` operations in chat using the host agent's normal tools. For init, the bundled helper discovers and validates the home marker from its location and the invocation directory. Use the returned home path for subsequent operations. If it reports ambiguous or missing homes, resolve that choice before proceeding. For copied plugins or legacy unmarked homes, select an explicit valid home through `--home`. Product changes belong in the target checkout's Git history.
 
 | Request | Action |
 | --- | --- |
 | `cc init [repo-link-or-path]` | Clone and register a remote, or register a local checkout |
 | `cc repos` | List registered repos, paths, and setup gaps |
+| `cc dashboard` | Start the local Kanban dashboard; viewing it starts no jobs |
 | `cc config <repo> [change]` | Read configuration, or apply the requested change |
 | `cc start <repo> <task>` | Save the request and carry the job through the engineering workflow |
 | `cc add <repo> <idea>` | Create a queued GitHub issue without starting work |
@@ -31,3 +34,5 @@ Load relevant engineering skills from the home root's `skills/` on demand. Share
 Read [workflow skills and migration](references/workflow-skills.md) for canonical ownership, role subsets, host discovery limitations, and explicit flat-home migration/recovery. Canonical skills live under `skills/<workflow-step>/<skill>/`; generated host copies remain flat by name.
 
 Verify saved claims against files, commits, check results, and PR state. Resolve review findings and check failures before delivery. Preserve human decisions for merge and deployment.
+
+For `cc dashboard`, run `node <cc-skill>/scripts/factory.mjs dashboard --home <home> --host <invoking-host> [--port 4310]`. Keep the server alive and share its printed loopback URL. Read [dashboard operations](references/dashboard.md). Starting the server does not start queued jobs; execution requires an explicit board action. Never substitute a host to bypass provider availability.

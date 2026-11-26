@@ -8,6 +8,16 @@ import { createJob, loadJob } from '../skills/ready/cc/scripts/factory/store.mjs
 import { runJob, feedback, recover, restartChoiceLine } from '../skills/ready/cc/scripts/factory/engine.mjs';
 import { git, execute, exists } from '../skills/ready/cc/scripts/factory/io.mjs';
 import { restartOptions } from '../skills/ready/cc/scripts/factory/github.mjs';
+import { saveGlobalSettings } from '../skills/ready/cc/scripts/factory/admission.mjs';
+
+test('live admission capacity changes do not invalidate a running role or its frozen settings', async t => {
+  const f = await fixture(t), job = await createJob(await loadContext(f.home, f.repo, 'codex'), 'Live capacity change');
+  let started, release; const running = new Promise(resolve => { started = resolve; }); const gate = new Promise(resolve => { release = resolve; });
+  const normal = roleRunner();
+  const result = runJob(f.home, f.repo, job.id, { runRole: async args => { if (args.role === 'intake') { started(); await gate; } return normal(args); }, deliver: async state => ({ url: 'https://example.invalid/live-capacity', head: state.commit }) });
+  await running; await saveGlobalSettings(f.home, { concurrency: 1 }); release();
+  const ready = await result; assert.equal(ready.stage, 'ready', ready.blocker); assert.equal(ready.round, 1);
+});
 
 test('registered project checks and scoped instructions are frozen; config drift blocks new jobs', async t => {
   const f = await fixture(t);

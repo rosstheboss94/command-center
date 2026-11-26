@@ -1,5 +1,5 @@
 export const roles = ['intake', 'spec', 'plan', 'builder', 'review-code', 'review-security', 'review-ui', 'review-ux', 'approver'];
-export const stages = ['intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver', 'ready', 'blocked', 'rejected'];
+export const stages = ['intake', 'spec', 'plan', 'build', 'verify', 'review', 'approve', 'deliver', 'ready', 'blocked', 'rejected', 'failed'];
 const verdicts = { intake: ['ACCEPT', 'NEEDS_INFO', 'REJECT'], spec: ['READY', 'BLOCKED'], plan: ['READY', 'BLOCKED'], builder: ['READY', 'BLOCKED'], approver: ['APPROVE', 'BLOCKED', 'CHANGES'] };
 export function positive(value, name) {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
@@ -7,7 +7,8 @@ export function positive(value, name) {
 }
 export function effectiveConfig(saved = {}, host) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('Invalid factory configuration.');
-  for (const key of Object.keys(saved)) if (!['schemaVersion', 'default', 'roles', 'concurrency', 'maxRounds', 'checkTimeoutSeconds', 'requiredReviews'].includes(key)) throw new Error(`Unknown factory setting: ${key}`);
+  for (const key of Object.keys(saved)) if (!['schemaVersion', 'default', 'roles', 'concurrency', 'maxRounds', 'checkTimeoutSeconds', 'requiredReviews', 'blocking'].includes(key)) throw new Error(`Unknown factory setting: ${key}`);
+  if (saved.blocking !== undefined && typeof saved.blocking !== 'boolean') throw new Error('blocking must be a boolean.');
   if (saved.schemaVersion !== undefined && saved.schemaVersion !== 1) throw new Error('Unsupported factory config version.');
   const profile = (base, override = {}) => {
     for (const key of Object.keys(override)) if (!['runner', 'model', 'timeoutSeconds', 'executable'].includes(key)) throw new Error(`Unknown runner setting: ${key}`);
@@ -24,7 +25,7 @@ export function effectiveConfig(saved = {}, host) {
   for (const role of Object.keys(saved.roles || {})) if (!roles.includes(role)) throw new Error(`Unknown role: ${role}`);
   const requiredReviews = [...new Set(['review-code', ...(saved.requiredReviews || [])])];
   if (requiredReviews.some(role => !roles.includes(role) || !role.startsWith('review-'))) throw new Error('Invalid required reviewer.');
-  return { schemaVersion: 1, concurrency: positive(saved.concurrency ?? 3, 'concurrency'), maxRounds: positive(saved.maxRounds ?? 3, 'maxRounds'),
+  return { schemaVersion: 1, blocking: saved.blocking ?? false, concurrency: positive(saved.concurrency ?? 3, 'concurrency'), maxRounds: positive(saved.maxRounds ?? 3, 'maxRounds'),
     checkTimeoutSeconds: positive(saved.checkTimeoutSeconds ?? 1800, 'checkTimeoutSeconds'), default: defaults,
     roles: Object.fromEntries(roles.map(role => [role, profile(defaults, saved.roles?.[role])])), requiredReviews };
 }

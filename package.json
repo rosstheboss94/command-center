@@ -16,7 +16,8 @@
     "node": ">=22"
   },
   "bin": {
-    "create-command-center": "bin/create-command-center.mjs"
+    "create-command-center": "bin/create-command-center.mjs",
+    "command-center-dashboard": "bin/command-center-dashboard.mjs"
   },
   "files": [
     "bin/",

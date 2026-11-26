@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { installHome } from '../installer/install.mjs';
 import { prepare, register } from '../skills/ready/cc/scripts/init.mjs';
 import { git } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { saveConfig } from '../skills/ready/cc/scripts/factory/project.mjs';
 
-export async function fixture(t, { github = false } = {}) {
+export async function fixture(t, { github = false, blocking = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'cc-factory-'));
   const home = join(root, 'home'); const project = join(root, 'project');
   t.after(async () => { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
@@ -27,5 +28,7 @@ export async function fixture(t, { github = false } = {}) {
     details: { purpose: 'Fixture', skills: [], setupGaps: [], checks: [{ command: 'npm test', workingDirectory: '.', source: 'package.json' }] } });
   const path = join(home, 'repos', registration.id, 'config.md');
   await writeFile(path, (await readFile(path, 'utf8')).replace('Base branch — unknown', 'Base branch — main'));
+  // Existing enforcement tests explicitly exercise strict mode. Production defaults are advisory.
+  await saveConfig(home, registration.id, { blocking }, 'codex');
   return { root, home, project, repo: registration.id };
 }
