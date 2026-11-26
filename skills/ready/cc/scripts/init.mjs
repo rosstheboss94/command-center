@@ -235,10 +235,9 @@ async function ensureIgnored(home) {
   await safePath(home, path);
   const existed = Boolean(await stat(path));
   let text = existed ? await readFile(path, 'utf8') : '';
-  const lines = text.replaceAll('\r\n', '\n').split('\n');
-  const missing = ['/projects/', '/.cc/'].filter(rule => !lines.includes(rule));
-  if (missing.length) {
-    text += `${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`;
+  const rules = '/projects/\n/.cc/\n';
+  if (!text.replaceAll('\r\n', '\n').endsWith(rules)) {
+    text += `${text && !text.endsWith('\n') ? '\n' : ''}${rules}`;
     await atomicWrite(home, path, text);
     return existed ? 'updated' : 'created';
   }

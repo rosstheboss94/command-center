@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { atomic, hash } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { spawn } from 'node:child_process';
+import { atomic, hash, alive, exists } from '../skills/ready/cc/scripts/factory/io.mjs';
 import { updateRoot, updateLock, updateStatus, assertIdle, assertActive, activate, rollback } from '../skills/ready/cc/scripts/update/state.mjs';
 import { inventory, customizations, verifyInventory } from '../skills/ready/cc/scripts/update/inventory.mjs';
 
@@ -40,6 +41,42 @@ test('exclusive locks refuse live owners and recover dead owners only without li
   await assert.rejects(updateLock(home, 'prepare', async () => {}), /child|live/);
   await atomic(path, { pid: 2147483647, children: [] });
   await updateLock(home, 'prepare', async () => {});
+});
+test('simultaneous stale-lock recoverers never overlap their critical sections', async t => {
+  const { home } = await fixture(t), root = await updateRoot(home); let active = 0, overlaps = 0;
+  for (let index = 0; index < 20; index++) {
+    await atomic(join(root, 'prepare.lock'), { pid: 2147483647, children: [] });
+    await Promise.allSettled([1, 2, 3].map(() => updateLock(home, 'prepare', async () => {
+      active++; if (active > 1) overlaps++;
+      await new Promise(resolve => setTimeout(resolve, 10)); active--;
+    })));
+  }
+  assert.equal(overlaps, 0);
+});
+test('process termination leaves a recoverable lock while an orphaned recorded child prevents recovery', async t => {
+  const { home } = await fixture(t);
+  const module = new URL('../skills/ready/cc/scripts/update/state.mjs', import.meta.url).href;
+  const script = `import {spawn} from 'node:child_process'; const {updateLock}=await import(process.argv[1]); await updateLock(process.argv[2],'prepare',async ({recordChild})=>{const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',windowsHide:true,detached:true});await recordChild(child.pid);console.log(child.pid);await new Promise(()=>{});});`;
+  const parent = spawn(process.execPath, ['--input-type=module', '-e', script, module, home], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const childPid = await new Promise((resolve, reject) => { parent.once('error', reject); parent.stdout.once('data', bytes => resolve(Number(bytes.toString().trim()))); });
+  t.after(() => { if (alive(parent.pid)) parent.kill(); if (alive(childPid)) process.kill(childPid); });
+  parent.kill(); await new Promise(resolve => parent.once('exit', resolve));
+  assert.ok(await exists(join(await updateRoot(home), 'prepare.lock')));
+  await assert.rejects(updateLock(home, 'prepare', async () => {}), /child|live/);
+  process.kill(childPid);
+  for (let index = 0; index < 100 && alive(childPid); index++) await new Promise(resolve => setTimeout(resolve, 10));
+  await updateLock(home, 'prepare', async () => {});
+});
+test('a deletion reconciles only when a prepared candidate also omits the canonical file', async t => {
+  const { home, candidate } = await fixture(t);
+  await writeFile(join(home, 'skills/ready/cc/obsolete.txt'), 'obsolete');
+  await atomic(join(home, '.cc/install-manifest.json'), { files: await inventory(home) });
+  await rm(join(home, 'skills/ready/cc/obsolete.txt'));
+  assert.equal((await customizations(home)).conflicts.length, 1);
+  assert.equal((await customizations(home, candidate)).conflicts.length, 0);
+  await mkdir(join(candidate, 'skills/unready/cc'), { recursive: true });
+  await writeFile(join(candidate, 'skills/unready/cc/obsolete.txt'), 'obsolete');
+  assert.equal((await customizations(home, candidate)).conflicts.length, 1);
 });
 test('idle checks include role children, execution locks, slots and pending dashboard work', async t => {
   const { home } = await fixture(t);

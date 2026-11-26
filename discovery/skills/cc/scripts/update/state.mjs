@@ -31,17 +31,26 @@ export async function updateLock(home, kind, action) {
   if (!['prepare', 'activate'].includes(kind)) throw new Error('Unknown update lock.');
   const root = await updateRoot(home); await mkdir(root, { recursive: true });
   const path = await safe(root, join(root, `${kind}.lock`));
-  if (await exists(path)) {
-    const prior = await json(path);
-    if (!Number.isSafeInteger(prior.pid) || alive(prior.pid) || !Array.isArray(prior.children) || prior.children.some(pid => !Number.isSafeInteger(pid) || alive(pid))) throw new Error('Update lock is owned by a live or unverifiable process/child.');
-    // No owner or child can still mutate the candidate. Preserve recovery evidence.
-    await atomic(join(root, `recovered-${kind}-${randomUUID()}.json`), { ...prior, recovered: now() });
-    await unlink(path);
-  }
-  const handle = await open(path, 'wx'), owner = { pid: process.pid, children: [], started: now() };
+  // Serialize acquisition AND recovery so a stale reader cannot unlink a newer
+  // owner's replacement lock. A crashed recovery guard requires explicit inspection.
+  const recoveryPath = `${path}.recovery`;
+  let recovery;
+  try { recovery = await open(recoveryPath, 'wx'); }
+  catch (error) { if (error.code === 'EEXIST') throw new Error(`Update recovery is owned or requires inspection: ${recoveryPath}`); throw error; }
+  let handle;
+  const owner = { pid: process.pid, nonce: randomUUID(), children: [], started: now() };
+  try {
+    await recovery.writeFile(JSON.stringify(owner));
+    if (await exists(path)) {
+      const prior = await json(path);
+      if (!Number.isSafeInteger(prior.pid) || alive(prior.pid) || !Array.isArray(prior.children) || prior.children.some(pid => !Number.isSafeInteger(pid) || alive(pid))) throw new Error('Update lock is owned by a live or unverifiable process/child.');
+      await atomic(join(root, `recovered-${kind}-${randomUUID()}.json`), { ...prior, recovered: now() }); await unlink(path);
+    }
+    handle = await open(path, 'wx'); await handle.write(JSON.stringify(owner), 0); await handle.sync();
+  } finally { await recovery.close(); await unlink(recoveryPath); }
   const recordChild = async pid => { owner.children.push(pid); await handle.truncate(0); await handle.write(JSON.stringify(owner), 0); await handle.sync(); };
-  try { await handle.write(JSON.stringify(owner), 0); return await action({ recordChild }); }
-  finally { await handle.close(); await unlink(path); }
+  try { return await action({ recordChild }); }
+  finally { await handle.close(); if ((await json(path)).nonce === owner.nonce) await unlink(path); }
 }
 export async function assertIdle(home) {
   async function scan(rel) {

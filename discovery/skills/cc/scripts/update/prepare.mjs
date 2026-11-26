@@ -71,11 +71,11 @@ export async function transferConfiguration(home, destination, self, { refresh, 
   const global = join(home, 'repos/factory.json');
   await atomic(join(destination, 'repos/factory.json'), await exists(global) ? await json(global) : { concurrency: 3 });
 }
-async function runRecorded(journal, directory, file, args, { recordChild }, run) {
+async function runRecorded(journal, directory, file, args, run) {
   const attempt = { id: randomUUID(), file, args, started: now(), pid: null };
   journal.attempts.push(attempt); await atomic(join(directory, 'journal.json'), journal);
   const result = await run(file, args, { cwd: journal.source, timeoutSeconds: 1800, onStart: async pid => {
-    attempt.pid = pid; await recordChild(pid); await atomic(join(directory, 'journal.json'), journal);
+    attempt.pid = pid; await atomic(join(directory, 'journal.json'), journal);
   } });
   await atomic(join(directory, `${attempt.id}.log`), `${result.stdout || ''}\n${result.stderr || ''}`);
   attempt.finished = now(); attempt.code = result.code; await atomic(join(directory, 'journal.json'), journal);
@@ -89,7 +89,7 @@ export async function previewUpdate(home) {
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Invalid main commit from verified source.');
   const installation = join(home, '.cc/installation.json');
   return { ...state, installedCommit: await exists(installation) ? (await json(installation)).commit : null, availableCommit: commit,
-    source: source.identity, customizations: await customizations(home), proposedHome: join(dirname(home), 'command-center-home') };
+    source: source.identity, customizations: await customizations(home, undefined, { history: source.checkout }), proposedHome: join(dirname(home), 'command-center-home') };
 }
 export async function prepareUpdate(home, { ref = 'main', destination, run = execute } = {}) {
   await assertActive(home);
@@ -125,7 +125,7 @@ export async function prepareUpdate(home, { ref = 'main', destination, run = exe
       await cp(join(home, 'repos'), join(directory, 'configuration'), { recursive: true, errorOnExist: true, force: false });
     }
     journal.status = 'preparing'; delete journal.error; await atomic(journalPath, journal);
-    const step = async (file, args) => runRecorded(journal, directory, file, args, lock, run);
+    const step = async (file, args) => runRecorded(journal, directory, file, args, run);
     try {
       if (!await exists(journal.source)) await git(['clone', '--no-checkout', resolver, journal.source], dirname(home), run);
       await git(['remote', 'set-url', 'origin', sourceURL], journal.source, run);

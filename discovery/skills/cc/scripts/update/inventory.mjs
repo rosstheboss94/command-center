@@ -22,12 +22,13 @@ export async function verifyInventory(home, expected) {
   if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) throw new Error('Candidate inventory changed; prepare a new candidate.');
 }
 export function canonical(path) {
-  return path.replace(/^\.(?:agents|claude|grok)\//, '').replace(/^skills\/(?!ready\/|unready\/)([^/]+)\//, 'skills/ready/$1/');
+  return path.replace(/^\.(?:agents|claude|grok)\//, '').replace(/^skills\/(?:ready|unready)\//, 'skills/');
 }
 // Legacy homes use their committed installation as the baseline. A discovery
 // copy is generated only when its bytes match the old canonical source.
 export async function customizations(home, candidate, { history = home } = {}) {
   const actual = await inventory(home), target = candidate ? await inventory(candidate) : {}, changes = [], conflicts = [];
+  const canonicalTarget = Object.fromEntries(Object.entries(target).filter(([path]) => !/^\.(?:agents|claude|grok)\//.test(path)).map(([path, digest]) => [canonical(path), digest]));
   const manifest = join(home, '.cc/install-manifest.json');
   let baseline;
   if (await exists(manifest)) baseline = (await json(manifest)).files;
@@ -51,7 +52,9 @@ export async function customizations(home, candidate, { history = home } = {}) {
       const result = await execute('git', ['rev-list', '--objects', 'HEAD', '--', source], { cwd: history });
       staleGenerated = result.code === 0 && result.stdout.split(/\r?\n/).some(line => line === `${object} ${source}`);
     }
-    const reconciled = Boolean(actual[path] && (target[path] === actual[path] || target[canonical(path)] === actual[path]));
+    const reconciled = Boolean(candidate && (actual[path]
+      ? target[path] === actual[path] || canonicalTarget[canonical(path)] === actual[path]
+      : !target[path] && !canonicalTarget[canonical(path)]));
     const change = { path, baseline: baseline[path] || null, current: actual[path] || null, reconciled, ...(staleGenerated ? { staleGenerated: true } : {}) };
     changes.push(change); if (!reconciled && !staleGenerated) conflicts.push(change);
   }
