@@ -11,8 +11,9 @@ import { runJob, resumeJob, feedback, recover } from './factory/engine.mjs';
 import { addIssue, queueIssues, processQueue, syncLabel } from './factory/github.mjs';
 import { atomic, exists, safe, lock, git, json, inside, identifier } from './factory/io.mjs';
 import { prepareReleaseInputs } from './factory/release-inputs.mjs';
+import { assertActive } from './update/state.mjs';
 
-export const operations = ['dashboard', 'config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover', 'release-inputs'];
+export const operations = ['update', 'dashboard', 'config', 'add', 'start', 'run', 'status', 'resume', 'feedback', 'adopt', 'recover', 'release-inputs'];
 async function requestFile(path) {
   if (!path) throw new Error('Supply --file with the exact UTF-8 request or feedback.');
   const text = await readFile(path, 'utf8');
@@ -48,6 +49,16 @@ export async function command(operation, values, dependencies = {}) {
   if (!operations.includes(operation)) throw new Error('Unknown factory operation.');
   const { home } = await discoverHome({ home: values.home, cwd: values.cwd || process.cwd() });
   const repo = values.repo;
+  if (operation === 'update') {
+    const { updateCommand } = await import('./update.mjs');
+    return updateCommand(home, values.action, values);
+  }
+  if (!['status', 'dashboard'].includes(operation) && !(operation === 'config' && !values.file)) await assertActive(home);
+  if (operation === 'resume' && values.archive) {
+    const { createSuccessor } = await import('./update/history.mjs');
+    const job = await createSuccessor(home, values.archive, values.repo, values.job, values.host);
+    return runJob(home, job.repo, job.id, dependencies);
+  }
   if (operation === 'dashboard') {
     const { startDashboard } = await import('./dashboard/server.mjs');
     const port = values.port === undefined ? 4310 : Number(values.port);
@@ -131,11 +142,14 @@ export async function command(operation, values, dependencies = {}) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values, positionals } = parseArgs({ allowPositionals: true, options: Object.fromEntries([
-      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree', 'from', 'port',
+      'home', 'cwd', 'repo', 'host', 'file', 'job', 'issue', 'worktree', 'from', 'port', 'ref', 'destination', 'archive',
     ].map(name => [name, { type: 'string' }]).concat([['sync-labels', { type: 'boolean' }], ['accept-build', { type: 'boolean' }], ['offline', { type: 'boolean' }]])) });
     if (!positionals.length) console.log(JSON.stringify({ operations }));
     else {
-      if (positionals.length !== 1) throw new Error('Use named options after one operation.');
+      if (positionals[0] === 'update') {
+        if (positionals.length > (positionals[1] === 'apply' ? 3 : 2)) throw new Error('Unexpected update arguments.');
+        values.action = positionals[1]; values.candidate = positionals[2];
+      } else if (positionals.length !== 1) throw new Error('Use named options after one operation.');
       const result = await command(positionals[0], values);
       console.log(JSON.stringify({ ok: true, result }, null, 2));
     }

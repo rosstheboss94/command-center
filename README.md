@@ -87,3 +87,9 @@ Generated facts, instruction scopes, and structural check results are saved in m
 The helper contract and structured details format are documented in [registration](skills/ready/cc/references/registration.md). It is used by the skill through chat. Temporary helper reports and locks are separate from the versionable repo configs and job records.
 
 Original Command Center code is licensed under [MIT](LICENSE). The upstream skills retain their [MIT license notice](LICENSE.agent-skills).
+
+## Repeatable home updates
+
+`cc update` previews the installed source and verified Command Center main. `cc update prepare` builds and validates a sibling home from a pinned commit and SHA-256 checked package. `cc update apply <candidate-id>` activates only that prepared home; `cc update rollback` returns to the previous home without deleting jobs or either installation. Merges and the dashboard's 60-second discovery poll can prepare updates, but never activate them automatically.
+
+Use the active home's bundled helper for new sessions. Configuration and repository IDs transfer; frozen jobs stay in their original homes and appear in dashboard History as read-only archives. Resuming archived work creates a successor with fresh evidence. See [home updates](skills/ready/cc/references/updates.md) for commands, journals, customization reconciliation and legacy cutover.

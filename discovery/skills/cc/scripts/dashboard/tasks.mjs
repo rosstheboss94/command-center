@@ -8,6 +8,7 @@ import { globalSettings } from '../factory/admission.mjs';
 import { loadJob } from '../factory/store.mjs';
 import { recover } from '../factory/engine.mjs';
 import { identifier } from '../factory/io.mjs';
+import { assertActive } from '../update/state.mjs';
 
 export const taskRoot = home => safe(home, join(home, '.cc/dashboard/tasks'));
 export async function tasks(home) {
@@ -16,6 +17,7 @@ export async function tasks(home) {
   return Promise.all((await readdir(root)).filter(name => /^[a-f0-9-]{36}\.json$/.test(name)).map(name => json(join(root, name))));
 }
 export async function enqueue(home, input, key) {
+  await assertActive(home);
   const root = await taskRoot(home);
   return transaction(join(root, 'queue.lock'), async () => {
     const prior = (await tasks(home)).find(task => task.key === key && ['queued', 'launching', 'running'].includes(task.status));
@@ -25,6 +27,7 @@ export async function enqueue(home, input, key) {
   });
 }
 export async function dispatch(home, host, { launch } = {}) {
+  await assertActive(home);
   const root = await taskRoot(home);
   return transaction(join(root, 'scheduler.lock'), async () => {
     const all = await tasks(home);

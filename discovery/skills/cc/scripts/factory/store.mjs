@@ -58,7 +58,7 @@ async function initialize(context, request, directory, id, options = {}) {
   const job = { schemaVersion: 1, repo: context.repo, id, stage: options.adopted ? 'blocked' : 'intake', interruptedStage: options.adopted ? 'intake' : null,
     blocker: options.adopted ? 'Legacy job adopted. Confirm its request and worktree through feedback before refreshing all evidence.' : null,
     requiresFeedback: Boolean(options.adopted), blocking: context.config.blocking === true,
-    revision: 0, created: now(), updated: now(), issue: options.issue || null, round: 0, frozen, reports: {}, attempts: [], checks: null,
+    revision: 0, created: now(), updated: now(), issue: options.issue || null, ...(options.priorJob ? { priorJob: options.priorJob } : {}), round: 0, frozen, reports: {}, attempts: [], checks: null,
     requiredReviews: [...(context.config.requiredReviews || ['review-code'])], history: [{ at: now(), stage: 'intake', message: options.adopted ? 'Adopted legacy records; old evidence is not trusted.' : 'Created job with frozen settings.' }] };
   await atomic(join(directory, 'state.json'), job);
   job.directory = directory;

@@ -8,6 +8,51 @@ export function providerCommand(profile, role, prompt) {
   if (profile.model) args.push('--model', profile.model);
   return { file: profile.executable || profile.runner, args, input: prompt };
 }
+function jsonValueEnd(text, start) {
+  const closer = text[start] === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{' || char === '[') depth += 1;
+    else if (char === '}' || char === ']') {
+      depth -= 1;
+      if (depth === 0) return char === closer ? index + 1 : -1;
+    }
+  }
+  return -1;
+}
+
+function reportObject(text) {
+  const values = [];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '{' && text[index] !== '[') continue;
+    const end = jsonValueEnd(text, index);
+    if (end < 0) continue;
+    try {
+      values.push(JSON.parse(text.slice(index, end)));
+      index = end - 1;
+    } catch {
+      // A brace in surrounding prose is not a report.
+    }
+  }
+  if (values.length !== 1 || !values[0] || typeof values[0] !== 'object' || Array.isArray(values[0])) {
+    throw new Error('Provider report must contain one JSON object.');
+  }
+  return values[0];
+}
+
 export function providerReport(runner, stdout) {
   let text;
   if (runner === 'codex') {
@@ -24,5 +69,5 @@ export function providerReport(runner, stdout) {
     text = envelope.result;
   }
   if (typeof text !== 'string') throw new Error('Provider result has no final report.');
-  return JSON.parse(text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, ''));
+  return reportObject(text);
 }

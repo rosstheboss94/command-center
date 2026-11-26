@@ -14,6 +14,11 @@ Interpret `cc` operations in chat using the host agent's normal tools. For init,
 | `cc init [repo-link-or-path]` | Clone and register a remote, or register a local checkout |
 | `cc repos` | List registered repos, paths, and setup gaps |
 | `cc dashboard` | Start the local Kanban dashboard; viewing it starts no jobs |
+| `cc update` | Preview installed source, verified main, customizations and a proposed sibling home |
+| `cc update prepare [--ref <ref>]` | Pin, test, package and validate a candidate; never activate it |
+| `cc update status` | Inspect active home, preparation journals, failures and rollback target |
+| `cc update apply <candidate-id>` | Revalidate and explicitly activate that exact prepared home |
+| `cc update rollback` | Return to the previous home, preserving both generations and their jobs |
 | `cc config <repo> [change]` | Read configuration, or apply the requested change |
 | `cc start <repo> <task>` | Save the request and carry the job through the engineering workflow |
 | `cc add <repo> <idea>` | Create a queued GitHub issue without starting work |
@@ -26,6 +31,8 @@ Interpret `cc` operations in chat using the host agent's normal tools. For init,
 | `cc release-inputs` | Verify and cache published migration inputs from the host |
 
 Read [registration](references/registration.md) for init, repos, and project config. Read [jobs](references/jobs.md) for factory configuration, issue queues, start, status, resume, adoption, and feedback. Use bundled `scripts/factory.mjs` for factory operations, never a separately installed factory skill or direct state edits. A bare invocation describes operations without writing records.
+
+Read [home updates](references/updates.md) for pinned source upgrades, activation, archives, and rollback. New sessions use the active home's bundled helper. Archived homes retain their original contents and paths; never redirect or overwrite them or global plugin caches.
 
 For `cc init`, use the bundled Node helper at `scripts/init.mjs` for preparation and registration. Follow the helper contract in the registration reference. Inspect reported facts and scoped instructions, propose checks from project evidence, and select skills from its canonical home catalog. Use its completion status, effective settings, setup gaps, and validation limits when reporting the result.
 

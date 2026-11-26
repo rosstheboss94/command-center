@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { safe, exists, json, atomic, transaction, alive } from './io.mjs';
 import { positive } from './model.mjs';
+import { assertActive } from '../update/state.mjs';
 
 export async function globalSettings(home) {
   const path = await safe(home, join(home, 'repos/factory.json'));
@@ -17,9 +18,11 @@ export async function saveGlobalSettings(home, settings) {
   return transaction(`${path}.lock`, async () => { await atomic(path, settings); return settings; });
 }
 export async function globalSlot(home, job, action) {
+  await assertActive(home);
   const root = await safe(home, join(home, '.cc/factory/global'));
   const path = join(root, 'leases.json'), token = randomUUID();
   await transaction(join(root, 'admission.lock'), async () => {
+    await assertActive(home);
     const leases = await exists(path) ? await json(path) : [];
     const { concurrency } = await globalSettings(home);
     if (leases.length >= concurrency) throw Object.assign(new Error('Home concurrency limit reached or stale slot requires recovery.'), { code: 'CC_CAPACITY' });
@@ -41,6 +44,7 @@ export async function recoverGlobalSlot(home, repo, id) {
   });
 }
 export async function configurationWrite(home, action) {
+  await assertActive(home);
   const root = await safe(home, join(home, '.cc/factory/global'));
   return transaction(join(root, 'admission.lock'), async () => {
     const path = join(root, 'leases.json');

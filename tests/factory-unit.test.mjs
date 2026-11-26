@@ -55,4 +55,10 @@ test('provider envelopes require completed successful output', () => {
   assert.throws(() => providerReport('grok', '{}'));
   assert.deepEqual(providerReport('grok', JSON.stringify({ text: JSON.stringify(report), stopReason: 'end_turn' })), report);
   assert.throws(() => providerReport('grok', JSON.stringify({ text: JSON.stringify(report), stopReason: 'max_tokens' })));
+  const prefixed = `I'll assess this intake request.\n\n${JSON.stringify(report)}`;
+  assert.deepEqual(providerReport('grok', JSON.stringify({ text: prefixed, stopReason: 'end_turn' })), report);
+  const fenced = `Note.\n\n\`\`\`json\n${JSON.stringify(report)}\n\`\`\`\nDone.`;
+  assert.deepEqual(providerReport('grok', JSON.stringify({ text: fenced, stopReason: 'end_turn' })), report);
+  assert.throws(() => providerReport('grok', JSON.stringify({ text: 'no report here', stopReason: 'end_turn' })));
+  assert.throws(() => providerReport('grok', JSON.stringify({ text: `${JSON.stringify(report)}\n${JSON.stringify({ extra: true })}`, stopReason: 'end_turn' })));
 });

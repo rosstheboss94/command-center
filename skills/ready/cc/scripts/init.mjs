@@ -505,6 +505,9 @@ async function main() {
   } });
   if (positionals.length !== 1) throw new Error('Use prepare [--home <home>] [--cwd <invocation-directory>] [--source <source>] or register [--home <home>] --report <file> --details <file>.');
   let result;
+  const { assertActive } = await import('./update/state.mjs');
+  const selectedHome = await discoverHome(values);
+  await assertActive(selectedHome.home);
   if (positionals[0] === 'prepare') result = await prepare(values);
   else if (positionals[0] === 'register' && values.report && values.details) result = await register({ ...values, details: JSON.parse(await readFile(values.details, 'utf8')) });
   else throw new Error('Unknown operation or missing register inputs.');
