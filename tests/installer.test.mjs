@@ -283,6 +283,24 @@ test('customized compatibility files and differing destinations cause no writes'
   assert.deepEqual(await readdir(join(other.home, '.grok/skills/cc')), ['SKILL.md']);
 });
 
+test('add-agent installs grok as the first agent on a home that lists none', async t => {
+  const { home } = await installedHome(t, 'codex');
+  const markerText = await asLegacyHome(home, '0.3.0', []);
+  await addAgent(home, 'grok');
+  const marker = JSON.parse(await readFile(join(home, '.command-center.json'), 'utf8'));
+  assert.equal(marker.templateVersion, '0.3.0');
+  assert.deepEqual(marker.agents, ['grok']);
+  await verifySkills(home, '.grok');
+  for (const rel of ['skills/cc/scripts/home.mjs', '.grok/skills/cc/scripts/home.mjs']) {
+    assert.deepEqual(await readFile(join(home, rel)), currentValidator);
+  }
+  assert.deepEqual((await addAgent(home, 'grok')).written, []);
+  await rm(join(home, 'references'), { recursive: true });
+  await writeFile(join(home, '.command-center.json'), markerText);
+  await assert.rejects(addAgent(home, 'grok'), /references/);
+  assert.equal(await readFile(join(home, '.command-center.json'), 'utf8'), markerText);
+});
+
 test('add-agent rejects invalid selections and unsupported homes before writing', async t => {
   const root = await fixture(t);
   await assert.rejects(addAgent(root, 'both'), /--add-agent/);

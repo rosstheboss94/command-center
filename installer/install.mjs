@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { projectSkills } from './projection.mjs';
 import { createHash } from 'node:crypto';
+import { inventory } from '../skills/ready/cc/scripts/update/inventory.mjs';
+import { atomic } from '../skills/ready/cc/scripts/factory/io.mjs';
 import { validateHome } from '../skills/ready/cc/scripts/home.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -156,6 +158,7 @@ export async function installHome(target, selection) {
   const temporary = join(destination, `${markerName}.${process.pid}.tmp`);
   await writeFile(temporary, marker, { flag: 'wx' });
   await rename(temporary, markerPath);
+  await atomic(join(destination, '.cc/install-manifest.json'), { schemaVersion: 1, files: await inventory(destination) });
   return { destination, agents, written: pending.map(([path]) => relative(destination, path)) };
 }
 
@@ -179,7 +182,7 @@ export async function addAgent(target, agent) {
   const supportedVersions = new Set(['0.3.0', metadata.version]);
   if (previous.kind !== 'command-center-home' || previous.schemaVersion !== 1 ||
       !supportedVersions.has(previous.templateVersion) || !Array.isArray(previous.agents) ||
-      !previous.agents.length || previous.agents.some(name => !knownAgents.includes(name)) ||
+      previous.agents.some(name => !knownAgents.includes(name)) ||
       new Set(previous.agents).size !== previous.agents.length) {
     throw addAgentError(metadata.version, 'The home marker is unsupported.');
   }
