@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateReport } from '../skills/cc/scripts/factory/model.mjs';
+import { validateReport } from '../skills/ready/cc/scripts/factory/model.mjs';
 const commit = 'a'.repeat(40);
 const base = { verdict: 'BLOCKED', commit, evidence: ['Registry returned EACCES; offline lookup returned ENOTCACHED.'] };
 test('issue 10 structured blocker retains its verdict, evidence, problem and recovery action', () => {

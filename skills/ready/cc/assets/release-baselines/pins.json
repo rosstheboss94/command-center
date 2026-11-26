@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "name": "create-command-center",
+      "version": "0.3.0",
+      "dist": {
+        "integrity": "sha512-apJPUQrrbneZGPBD/T32VcHTdjZHoz9xiRLsjFWv84qCnH0Vk6LTir39SBSdsi56AWWx739SwKwhw/38YrzF5g==",
+        "tarball": "https://registry.npmjs.org/create-command-center/-/create-command-center-0.3.0.tgz",
+        "fileCount": 67
+      },
+      "inventorySha256": "7a08d8e0bb743a17c3cc2f9806786ba23c6ab11bfdb449491bab6ec450ffa6a3"
+    },
+    {
+      "name": "create-command-center",
+      "version": "0.4.0",
+      "dist": {
+        "integrity": "sha512-UhB4PckppABlnOC9+p4Nehlc9GlezQjvUmP0ey/uWhzHzZKpBrX8IogFJybyyFxhee+2ap9ApvI0UHXtjoooAw==",
+        "tarball": "https://registry.npmjs.org/create-command-center/-/create-command-center-0.4.0.tgz",
+        "fileCount": 68
+      },
+      "inventorySha256": "592cba796ec4e5d417c4e015db23760b88803b697e4ae19ed99f1ff9c25a057d"
+    }
+  ]
+}

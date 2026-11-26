@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { parseSource, prepare, register } from '../skills/cc/scripts/init.mjs';
+import { parseSource, prepare, register } from '../skills/ready/cc/scripts/init.mjs';
 
 const exec = promisify(execFile);
 async function git(args, cwd) {

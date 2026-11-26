@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const destination = join(root, 'skills/cc/scripts/vendor');
+const destination = join(root, 'skills/ready/cc/scripts/vendor');
 await mkdir(destination, { recursive: true });
 await build({
   stdin: { contents: 'export { parse as parseToml } from "smol-toml"; export { parse as parseYaml } from "yaml"; export { default as makeMatcher } from "picomatch";', resolveDir: root },

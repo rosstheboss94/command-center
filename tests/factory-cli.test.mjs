@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { fixture } from './factory-fixture.mjs';
-import { execute } from '../skills/cc/scripts/factory/io.mjs';
-const helper = fileURLToPath(new URL('../skills/cc/scripts/factory.mjs', import.meta.url));
+import { execute } from '../skills/ready/cc/scripts/factory/io.mjs';
+const helper = fileURLToPath(new URL('../skills/ready/cc/scripts/factory.mjs', import.meta.url));
 test('bare factory invocation and status are read-only and expose factory operations', async () => {
   const result = await execute(process.execPath, [helper]);
   assert.equal(result.code, 0);

@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { projectSkills } from '../installer/projection.mjs';
+test('flat discovery projection preserves helper assets and rewrites shared and cross-skill references', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cc-projection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const path of ['skills/build/widget', 'skills/ready/entry', 'references']) await mkdir(join(root, path), { recursive: true });
+  await writeFile(join(root, 'skills/build/widget/SKILL.md'), '---\nname: widget\ndescription: Widget\n---\n[check](../../../references/check.md) [entry](../../ready/entry/SKILL.md)\n`../../../references/check.md`');
+  await writeFile(join(root, 'skills/ready/entry/SKILL.md'), '---\nname: entry\ndescription: Entry\n---\n');
+  await writeFile(join(root, 'references/check.md'), '# Check');
+  const files = await projectSkills(root);
+  const text = files.get('skills/widget/SKILL.md').toString();
+  assert.match(text, /\.\.\/\.\.\/references\/check.md/);
+  assert.match(text, /\.\.\/entry\/SKILL.md/);
+  assert.equal(text.includes('../../../references'), false);
+  assert.equal(files.get('references/check.md').toString(), '# Check');
+});

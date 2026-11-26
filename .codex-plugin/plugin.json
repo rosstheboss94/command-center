@@ -2,7 +2,7 @@
   "name": "command-center",
   "version": "0.3.0",
   "description": "A software factory home repo with cc and shared engineering skills.",
-  "skills": "./skills/",
+  "skills": "./discovery/skills/",
   "interface": {
     "displayName": "Command Center",
     "shortDescription": "Register repos and run saved engineering workflows through cc.",

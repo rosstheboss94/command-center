@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './factory-fixture.mjs';
-import { loadContext, saveConfig } from '../skills/cc/scripts/factory/project.mjs';
-import { createJob, loadJob } from '../skills/cc/scripts/factory/store.mjs';
-import { runJob, feedback, recover, restartChoiceLine } from '../skills/cc/scripts/factory/engine.mjs';
-import { git, execute, exists } from '../skills/cc/scripts/factory/io.mjs';
-import { restartOptions } from '../skills/cc/scripts/factory/github.mjs';
+import { loadContext, saveConfig } from '../skills/ready/cc/scripts/factory/project.mjs';
+import { createJob, loadJob } from '../skills/ready/cc/scripts/factory/store.mjs';
+import { runJob, feedback, recover, restartChoiceLine } from '../skills/ready/cc/scripts/factory/engine.mjs';
+import { git, execute, exists } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { restartOptions } from '../skills/ready/cc/scripts/factory/github.mjs';
 
 test('registered project checks and scoped instructions are frozen; config drift blocks new jobs', async t => {
   const f = await fixture(t);
@@ -176,8 +176,8 @@ for (const runner of ['codex', 'claude', 'grok']) test(`real engine normalizes $
   assert.ok(result.attempts.some(attempt => attempt.name === 'approver' && attempt.finished));
 });
 
-import { command } from '../skills/cc/scripts/factory.mjs';
-import { saveJob, listJobs } from '../skills/cc/scripts/factory/store.mjs';
+import { command } from '../skills/ready/cc/scripts/factory.mjs';
+import { saveJob, listJobs } from '../skills/ready/cc/scripts/factory/store.mjs';
 
 test('legacy CLI adoption validates the worktree and refreshes all old evidence', async t => {
  const f = await fixture(t); const { mkdir } = await import('node:fs/promises');
@@ -227,7 +227,7 @@ test('Command Center self-jobs may update source but cannot modify the live home
  assert.equal(result.stage,'ready',result.blocker);
  const other = await createJob(context,'Malicious live-control edit');
  const blocked = await runJob(f.home,f.repo,other.id,{run:allowLocalFetch,runRole:async args=>{
-  if(args.role === 'builder') await writeFile(join(f.home,'skills/cc/SKILL.md'),'tampered live control');
+  if(args.role === 'builder') await writeFile(join(f.home,'skills/ready/cc/SKILL.md'),'tampered live control');
   return sourceBuilder(args);
  }});
  assert.equal(blocked.stage,'blocked'); assert.match(blocked.blocker,/protected factory controls/);

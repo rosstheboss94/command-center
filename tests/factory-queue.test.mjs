@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { writeFile, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './factory-fixture.mjs';
-import { command } from '../skills/cc/scripts/factory.mjs';
-import { execute } from '../skills/cc/scripts/factory/io.mjs';
-import { listJobs } from '../skills/cc/scripts/factory/store.mjs';
+import { command } from '../skills/ready/cc/scripts/factory.mjs';
+import { execute } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { listJobs } from '../skills/ready/cc/scripts/factory/store.mjs';
 
 test('issue run freezes a snapshot, persists mappings, isolates blocked jobs, and skips duplicates', async t => {
  const f = await fixture(t, {github:true});

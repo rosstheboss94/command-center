@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile, mkdir, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { inspectArchive, prepareReleaseInputs, bundledReleaseInputs, releaseInputs } from '../skills/cc/scripts/factory/release-inputs.mjs';
+import { inspectArchive, prepareReleaseInputs, bundledReleaseInputs, releaseInputs } from '../skills/ready/cc/scripts/factory/release-inputs.mjs';
 
 function archive(files, type = '0') {
   const chunks = [];

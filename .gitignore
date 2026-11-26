@@ -3,6 +3,7 @@
 /projects/
 /.cc/
 *.tgz
+!tests/fixtures/releases/*.tgz
 .DS_Store
 Thumbs.db
 *.tmp

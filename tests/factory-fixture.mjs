@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installHome } from '../installer/install.mjs';
-import { prepare, register } from '../skills/cc/scripts/init.mjs';
-import { git } from '../skills/cc/scripts/factory/io.mjs';
+import { prepare, register } from '../skills/ready/cc/scripts/init.mjs';
+import { git } from '../skills/ready/cc/scripts/factory/io.mjs';
 
 export async function fixture(t, { github = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'cc-factory-'));

@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { effectiveConfig, validateReport, nextStage } from '../skills/cc/scripts/factory/model.mjs';
-import { providerCommand, providerReport } from '../skills/cc/scripts/factory/providers.mjs';
-import { protectedSourcePath } from '../skills/cc/scripts/factory/engine.mjs';
+import { effectiveConfig, validateReport, nextStage } from '../skills/ready/cc/scripts/factory/model.mjs';
+import { providerCommand, providerReport } from '../skills/ready/cc/scripts/factory/providers.mjs';
+import { protectedSourcePath } from '../skills/ready/cc/scripts/factory/engine.mjs';
 
 const sha = 'a'.repeat(40);
 test('only the verified Command Center identity can modify its own factory source', () => {
   const own = 'github.com/rosstheboss94/command-center';
-  for (const path of ['skills/cc/scripts/checks.mjs', '.agents/skills/cc/SKILL.md', 'repos/example/config.md', '.command-center.json']) {
+  for (const path of ['skills/cc/scripts/checks.mjs', 'skills/ready/cc/scripts/checks.mjs', '.agents/skills/cc/SKILL.md', 'discovery/skills/cc/SKILL.md', 'repos/example/config.md', '.command-center.json']) {
     assert.equal(protectedSourcePath(path, own), false);
     for (const identity of ['github.com/other/command-center', 'github.com/rosstheboss94/trader', undefined]) assert.equal(protectedSourcePath(path, identity), true);
   }

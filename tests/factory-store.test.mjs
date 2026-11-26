@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { atomic, json, lock, safe } from '../skills/cc/scripts/factory/io.mjs';
-import { createJob, loadJob, saveJob, listJobs, adoptJob } from '../skills/cc/scripts/factory/store.mjs';
+import { atomic, json, lock, safe } from '../skills/ready/cc/scripts/factory/io.mjs';
+import { createJob, loadJob, saveJob, listJobs, adoptJob } from '../skills/ready/cc/scripts/factory/store.mjs';
 
 async function fixture(t) {
   const home = await mkdtemp(join(tmpdir(), 'cc-factory-store-'));
@@ -62,7 +62,7 @@ test('legacy jobs remain visible and adoption preserves old records', async t =>
   assert.equal(await readFile(join(directory, 'legacy-progress.md'), 'utf8'), '# Old history');
 });
 
-import { execute, alive } from '../skills/cc/scripts/factory/io.mjs';
+import { execute, alive } from '../skills/ready/cc/scripts/factory/io.mjs';
 
 test('process runner waits for failed startup cleanup and bounds timed-out processes', async () => {
  let pid;
